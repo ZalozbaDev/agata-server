@@ -41,7 +41,7 @@ router.post('/chat', async (req: Request, res: Response) => {
   )
 
   // Ask openai what to answer to that question is
-  const OPEN_AI_MODEL = 'gpt-4o-2024-08-06'
+  const OPEN_AI_MODEL = 'chatgpt-4o'
   const openai_response = await openAI.responses.create({
     model: OPEN_AI_MODEL,
     input: translatedInput.data.output_html,
