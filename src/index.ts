@@ -2,7 +2,7 @@ import express from 'express'
 import cors from 'cors'
 import helmet from 'helmet'
 import dotenv from 'dotenv'
-// import { connectDB } from './config/database'
+import { connectDB } from './config/database'
 import { errorHandler } from './middleware/errorHandler'
 import routes from './routes'
 import OpenAI from 'openai'
@@ -49,7 +49,7 @@ app.use('*', (req, res) => {
 const startServer = async (): Promise<void> => {
   try {
     // Connect to database
-    // await connectDB()
+    await connectDB()
 
     app.listen(PORT, () => {
       console.log(`🚀 Server running on port ${PORT}`)
