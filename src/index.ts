@@ -2,7 +2,7 @@ import express from 'express'
 import cors from 'cors'
 import helmet from 'helmet'
 import dotenv from 'dotenv'
-// import { connectDB } from './config/database'
+import { connectDB } from './config/database'
 import { errorHandler } from './middleware/errorHandler'
 import routes from './routes'
 import OpenAI from 'openai'
@@ -45,21 +45,21 @@ app.use('*', (req, res) => {
   })
 })
 
-// // Start server
-// const startServer = async (): Promise<void> => {
-//   try {
-//     // Connect to database
-//     await connectDB()
+// Start server
+const startServer = async (): Promise<void> => {
+  try {
+    // Connect to database
+    await connectDB()
 
-app.listen(PORT, () => {
-  console.log(`🚀 Server running on port ${PORT}`)
-  console.log(`📊 Environment: ${process.env['NODE_ENV'] || 'development'}`)
-  console.log(`🔗 Health check: http://localhost:${PORT}/health`)
-})
-//   } catch (error) {
-//     console.error('❌ Failed to start server:', error)
-//     process.exit(1)
-//   }
-// }
+    app.listen(PORT, () => {
+      console.log(`🚀 Server running on port ${PORT}`)
+      console.log(`📊 Environment: ${process.env['NODE_ENV'] || 'development'}`)
+      console.log(`🔗 Health check: http://localhost:${PORT}/health`)
+    })
+  } catch (error) {
+    console.error('❌ Failed to start server:', error)
+    process.exit(1)
+  }
+}
 
-// startServer()
+startServer()

@@ -1,6 +1,7 @@
 import axios from 'axios'
 import { Router, Request, Response } from 'express'
 import { openAI } from '..'
+import urlRoutes from './urls'
 
 const router = Router()
 
@@ -21,6 +22,7 @@ router.get('/', (_req: Request, res: Response) => {
     endpoints: {
       hello: '/api/hello',
       health: '/health',
+      urls: '/api/urls',
     },
     timestamp: new Date().toISOString(),
   })
@@ -28,9 +30,6 @@ router.get('/', (_req: Request, res: Response) => {
 
 router.post('/chat', async (req: Request, res: Response) => {
   const { message } = req.body
-
-  console.log(message)
-
   // Translate the chat message from user to german
   const translatedInput = await axios.post(
     'https://sotra.app/?uri=/ws/translate/&_version=2.1.10',
@@ -55,17 +54,13 @@ router.post('/chat', async (req: Request, res: Response) => {
     'https://sotra.app/?uri=/ws/translate/&_version=2.1.10',
     { direction: 'de_hsb', warnings: false, text: openai_response.output_text }
   )
-  console.log(translatedAnswer.data.output_html)
-
   res.send({
     message: translatedAnswer.data.output_html,
     timestamp: new Date().toISOString(),
   })
 })
 
-router.post('/url', (req: Request, _res: Response) => {
-  const { url, username, password } = req.body
-  console.log('nowa url z datami: ', url, username, password)
-})
+// URL routes
+router.use('/urls', urlRoutes)
 
 export default router
