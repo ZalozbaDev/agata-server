@@ -63,4 +63,9 @@ router.post('/chat', async (req: Request, res: Response) => {
   })
 })
 
+router.post('/url', (req: Request, _res: Response) => {
+  const { url, username, password } = req.body
+  console.log('nowa url z datami: ', url, username, password)
+})
+
 export default router
