@@ -41,6 +41,8 @@ router.post('/chat', async (req: Request, res: Response) => {
       text: message,
     }
   )
+  console.log('translatedInput: ' + translatedInput.data)
+
   // Check if the message is about weather
   const isWeatherQuery = weatherService.isWeatherQuery(message)
   let weatherInfo = ''
