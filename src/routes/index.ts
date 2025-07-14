@@ -41,9 +41,7 @@ router.post('/chat', async (req: Request, res: Response) => {
   )
 
   // Ask openai what to answer to that question is
-  const OPEN_AI_MODEL = 'gpt-4o-mini-2024-07-18'
   const openai_response = await openAI.responses.create({
-    model: OPEN_AI_MODEL,
     input: translatedInput.data.output_html,
   })
 
@@ -54,8 +52,9 @@ router.post('/chat', async (req: Request, res: Response) => {
     'https://sotra.app/?uri=/ws/translate/&_version=2.1.10',
     { direction: 'de_hsb', warnings: false, text: openai_response.output_text }
   )
+
   res.send({
-    message: translatedAnswer.data.output_html,
+    message: translatedAnswer.data.output_text,
     timestamp: new Date().toISOString(),
   })
 })
