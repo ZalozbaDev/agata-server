@@ -21,9 +21,7 @@ export class WeatherService {
     }
   }
 
-  async getCurrentWeather(
-    city: string = 'Bautzen'
-  ): Promise<WeatherData | null> {
+  async getCurrentWeather(city: string): Promise<WeatherData | null> {
     if (!this.apiKey) {
       console.error('OpenWeather API key not configured')
       return null

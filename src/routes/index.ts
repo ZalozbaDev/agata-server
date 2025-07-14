@@ -47,8 +47,13 @@ router.post('/chat', async (req: Request, res: Response) => {
   )
   let weatherInfo = ''
 
+  const OPEN_AI_MODEL = 'gpt-4o'
   if (isWeatherQuery) {
-    const weather = await weatherService.getCurrentWeather()
+    const city = await openAI.responses.create({
+      model: OPEN_AI_MODEL,
+      input: 'Get the city from this text: ' + translatedInput.data.output_html,
+    })
+    const weather = await weatherService.getCurrentWeather(city.output_text)
     if (weather) {
       console.log('weather', weather)
       weatherInfo = weatherService.formatWeatherResponse(weather)
@@ -66,7 +71,6 @@ router.post('/chat', async (req: Request, res: Response) => {
   }
 
   // Ask openai what to answer to that question is
-  const OPEN_AI_MODEL = 'gpt-4o'
   const openai_response = await openAI.responses.create({
     model: OPEN_AI_MODEL,
     input: openaiInput,
