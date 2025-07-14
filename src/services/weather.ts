@@ -63,6 +63,9 @@ export class WeatherService {
 
   isWeatherQuery(message: string): boolean {
     const weatherKeywords = [
+      'wjedro',
+      'temperatura',
+      'wjedrjo',
       'wetter',
       'weather',
       'temperatur',
