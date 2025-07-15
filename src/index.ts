@@ -6,6 +6,7 @@ import { connectDB } from './config/database'
 import { errorHandler } from './middleware/errorHandler'
 import routes from './routes'
 import OpenAI from 'openai'
+// import { schedulerService } from './services/scheduler'
 
 // Load environment variables
 dotenv.config()
@@ -51,10 +52,17 @@ const startServer = async (): Promise<void> => {
     // Connect to database
     await connectDB()
 
+    // Start scheduled data fetching
+    // const fetchInterval = parseInt(
+    //   process.env['DATA_FETCH_INTERVAL'] || '3600000'
+    // )
+    // schedulerService.startScheduledFetching(fetchInterval)
+    // schedulerService.startScheduledFetching()
     app.listen(PORT, () => {
       console.log(`🚀 Server running on port ${PORT}`)
       console.log(`📊 Environment: ${process.env['NODE_ENV'] || 'development'}`)
       console.log(`🔗 Health check: http://localhost:${PORT}/health`)
+      // console.log(`🔄 Data fetching interval: ${fetchInterval}ms`)
     })
   } catch (error) {
     console.error('❌ Failed to start server:', error)

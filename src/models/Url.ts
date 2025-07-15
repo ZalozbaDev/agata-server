@@ -5,6 +5,9 @@ export interface IUrl extends Document {
   username?: string
   password?: string
   description?: string
+  type?: 'news' | 'private' | 'general'
+  isProcessed?: boolean
+  lastProcessed?: Date
   createdAt: Date
 }
 
@@ -25,6 +28,18 @@ const urlSchema = new Schema<IUrl>({
   description: {
     type: String,
     trim: true,
+  },
+  type: {
+    type: String,
+    enum: ['news', 'private', 'general'],
+    default: 'general',
+  },
+  isProcessed: {
+    type: Boolean,
+    default: false,
+  },
+  lastProcessed: {
+    type: Date,
   },
   createdAt: {
     type: Date,
