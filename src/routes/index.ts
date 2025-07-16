@@ -3,10 +3,12 @@ import { Router, Request, Response } from 'express'
 import { openAI } from '..'
 import urlRoutes from './urls'
 import { weatherService } from '../services/weather'
+import { substitutionPlanService } from '../services/substitutionPlan'
 import { dataManagerService } from '../services/dataManager'
 // import { dataFetcherService } from '../services/dataFetcher'
 import { Url } from '../models/Url'
 import { FetchedData, IFetchedData } from '../models/FetchedData'
+import bamborakRoutes from './bamborak'
 
 const router = Router()
 
@@ -31,6 +33,13 @@ router.get('/', (_req: Request, res: Response) => {
       chat: '/api/chat',
       fetchData: '/api/fetch-data',
       data: '/api/data',
+      bamborak: '/api/bamborak',
+    },
+    features: {
+      weather: 'Weather queries (wjedro, temperatura, etc.)',
+      substitution: 'Substitution plan queries (zastup, vertretung, etc.)',
+      dataSearch: 'Search through stored data sources',
+      audioGeneration: 'Text-to-speech with viseme generation for lip-sync',
     },
     timestamp: new Date().toISOString(),
   })
@@ -52,9 +61,12 @@ router.post('/chat', async (req: Request, res: Response) => {
   const translatedInputText = translatedInput.data.output_html
   console.log('translatedInput: ' + translatedInputText)
 
-  // Check if the message is about weather
+  // Check if the message is about weather or substitution plan
   const isWeatherQuery = weatherService.isWeatherQuery(message)
+  const isSubstitutionQuery =
+    substitutionPlanService.isSubstitutionQuery(message)
   let weatherInfo = ''
+  let substitutionInfo = ''
 
   const OPEN_AI_MODEL = 'gpt-4o'
 
@@ -75,6 +87,18 @@ router.post('/chat', async (req: Request, res: Response) => {
     if (weather) {
       console.log('weather', weather)
       weatherInfo = weatherService.formatWeatherResponse(weather)
+    }
+  }
+
+  // Handle substitution plan queries
+  if (isSubstitutionQuery) {
+    console.log('Detected substitution plan query')
+    const substitutionPlan =
+      await substitutionPlanService.fetchSubstitutionPlan()
+    if (substitutionPlan) {
+      console.log('substitution plan', substitutionPlan)
+      substitutionInfo =
+        substitutionPlanService.formatSubstitutionResponse(substitutionPlan)
     }
   }
 
@@ -107,6 +131,10 @@ router.post('/chat', async (req: Request, res: Response) => {
     openaiInput = `Aktuelle Wetterdaten: ${weatherInfo}\n\nBenutzerfrage: ${translatedInputText}\n\nBitte beantworte die Frage unter Berücksichtigung der aktuellen Wetterdaten.`
   }
 
+  if (isSubstitutionQuery && substitutionInfo) {
+    openaiInput = `Aktueller Vertretungsplan: ${substitutionInfo}\n\nBenutzerfrage: ${translatedInputText}\n\nBitte beantworte die Frage unter Berücksichtigung des aktuellen Vertretungsplans.`
+  }
+
   if (dataContext) {
     systemPrompt = `Du bist ein hilfreicher Assistent mit Zugang zu aktuellen Informationen. Antworte auf Deutsch und nutze die bereitgestellten Informationen, wenn sie relevant sind. Wenn sie nicht passen, antworte mit deinem globalen Wissen.`
     openaiInput = `${dataContext}\n\nBenutzerfrage: ${translatedInputText}\n\nBitte beantworte die Frage unter Berücksichtigung der bereitgestellten Informationen. Wenn sie nicht passen, antworte mit deinem globalen Wissen.`
@@ -137,6 +165,8 @@ router.post('/chat', async (req: Request, res: Response) => {
     message: translatedAnswer.data.output_text,
     timestamp: new Date().toISOString(),
     weatherData: isWeatherQuery && weatherInfo ? weatherInfo : undefined,
+    substitutionData:
+      isSubstitutionQuery && substitutionInfo ? substitutionInfo : undefined,
     dataSources: dataSources.length > 0 ? dataSources : undefined,
   })
 })
@@ -200,5 +230,6 @@ router.get('/data', async (req: Request, res: Response) => {
 
 // URL routes
 router.use('/urls', urlRoutes)
+router.use('/bamborak', bamborakRoutes)
 
 export default router
