@@ -136,8 +136,8 @@ router.post('/chat', async (req: Request, res: Response) => {
   }
 
   if (dataContext) {
-    systemPrompt = `Du bist ein hilfreicher Assistent mit Zugang zu aktuellen Informationen. Antworte auf Deutsch und nutze die bereitgestellten Informationen, wenn sie relevant sind. Wenn sie nicht passen, antworte mit deinem globalen Wissen.`
-    openaiInput = `${dataContext}\n\nBenutzerfrage: ${translatedInputText}\n\nBitte beantworte die Frage unter Berücksichtigung der bereitgestellten Informationen. Wenn sie nicht passen, antworte mit deinem globalen Wissen.`
+    systemPrompt = `Du bist ein hilfreicher Assistent mit Zugang zu aktuellen Informationen. Antworte auf Deutsch und nutze die bereitgestellten Informationen, wenn sie relevant sind. Wenn sie nicht passen, antworte mit deinem globalen Wissen. Informationen: ${dataContext}. Fasse dich kurz und präzise.`
+    openaiInput = `Benutzerfrage: ${translatedInputText}\n\n.`
   }
 
   // Ask openai what to answer to that question is
