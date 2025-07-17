@@ -2,7 +2,7 @@
   "apps": [
     {
       "name": "agata-api",
-      "script": "dist/main.js",
+      "script": "dist/index.js",
       "instances": 1,
       "exec_mode": "cluster",
       "env": {
