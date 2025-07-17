@@ -1,0 +1,15 @@
+{
+  "apps": [
+    {
+      "name": "agata-api",
+      "script": "dist/main.js",
+      "instances": 1,
+      "exec_mode": "cluster",
+      "env": {
+        "NODE_ENV": "prod",
+        "PORT": 8009,
+        "NODE_OPTIONS": "--max_old_space_size=4096"
+      }
+    }
+  ]
+}
