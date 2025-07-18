@@ -2,6 +2,7 @@ import axios from 'axios'
 import { Router, Request, Response } from 'express'
 import { openAI } from '..'
 import urlRoutes from './urls'
+import visitorRoutes from './visitor'
 import { weatherService } from '../services/weather'
 import { substitutionPlanService } from '../services/substitutionPlan'
 import { dataManagerService } from '../services/dataManager'
@@ -231,5 +232,6 @@ router.get('/data', async (req: Request, res: Response) => {
 // URL routes
 router.use('/urls', urlRoutes)
 router.use('/bamborak', bamborakRoutes)
+router.use('/visitors', visitorRoutes)
 
 export default router
