@@ -167,15 +167,9 @@ router.post('/chat', async (req: Request, res: Response) => {
 
   const visitor = await Visitor.findOne({ ipAddress })
 
-  console.log({
-    input_text: translatedInputText,
-    output_text: translatedAnswer.data.output_html,
-    visitor: visitor?._id,
-  })
-
   if (visitor) {
     const prompt = await Prompt.create({
-      input_text: translatedInputText,
+      input_text: message,
       output_text: translatedAnswer.data.output_html,
       visitor: visitor._id,
     })
