@@ -156,7 +156,8 @@ router.post('/chat', async (req: Request, res: Response) => {
     messages: [
       {
         role: 'system',
-        content: 'Antworte die Frage auf Deutsch.',
+        content:
+          'Du bist ein ChatBot der auf Fragen antworten muss. Dein Name ist Agata und du bist Mitarbeiterin von der sorbischen Firma Lucija. Deshalb weißt du viel über die Sorben und ihre Kultur. Antworte auf die Fragen so gut wie möglich. Antworte auf die Fragen auf Deutsch.',
       },
       { role: 'user', content: openaiInput },
     ],
