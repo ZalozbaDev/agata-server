@@ -180,6 +180,7 @@ router.post('/chat', async (req: Request, res: Response) => {
 
   const parsedAnswer = translatedAnswer.data.output_html
     .replace(/┊/g, '\n')
+    .replace(/¶[\s\n]*$/, '')
     .trim()
 
   if (visitor) {
