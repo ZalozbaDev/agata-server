@@ -195,7 +195,7 @@ router.post('/chat', async (req: Request, res: Response) => {
   }
 
   res.send({
-    message: translatedAnswer.data.output_text,
+    message: parsedAnswer,
     timestamp: new Date().toISOString(),
     weatherData: isWeatherQuery && weatherInfo ? weatherInfo : undefined,
     substitutionData:
