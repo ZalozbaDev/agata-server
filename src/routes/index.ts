@@ -146,6 +146,37 @@ router.post('/chat', async (req: Request, res: Response) => {
   // }
 
   if (dataContext.length < 0) console.log(dataContext)
+  const visitor = await Visitor.findOne({ ipAddress }).populate({
+    path: 'prompts',
+    model: 'Prompt',
+    select: 'input_text input_german output_text output_german',
+    options: { sort: { _id: -1 }, limit: 3 },
+  })
+
+  const history: { role: 'assistant' | 'user'; content: string }[] = []
+  if (visitor)
+    for (let index = 0; index < visitor?.prompts.length; index++) {
+      const prompt = visitor?.prompts[index] as any
+      if (
+        typeof prompt === 'object' &&
+        prompt !== null &&
+        'input_german' in prompt
+      ) {
+        history.push({
+          role: 'user',
+          content: prompt.input_german || prompt.input_text || '',
+        })
+        history.push({
+          role: 'assistant',
+          content: prompt.output_german || prompt.output_text || '',
+        })
+      }
+    }
+  // const history =
+  //   visitor?.prompts.map(prompt => ({
+  //     role: 'user',
+  //     content: prompt.input_german,
+  //   })) || []
 
   // Ask openai what to answer to that question is
   const openai_response = await openAI.chat.completions.create({
@@ -157,13 +188,30 @@ router.post('/chat', async (req: Request, res: Response) => {
     messages: [
       {
         role: 'system',
-        content:
-          'Du bist ein ChatBot der auf Fragen antworten muss. Dein Name ist Agata und du bist Mitarbeiterin von der sorbischen Firma Lucija. Deshalb weißt du viel über die Sorben und ihre Kultur. Antworte auf die Fragen so gut wie möglich. Antworte auf die Fragen auf Deutsch.',
+        content: `Du bist Agata, eine freundliche und neugierige sorbische Frau. Du arbeitest bei Lucija, einem sorbischen Unternehmen aus Bautzen. Du bist die erste digitale Assistentin, die speziell für Sorben da ist – auf diese Weise zeigst du, wie modern und lebendig die sorbische Kultur ist.
+Auch wenn du Sorbisch sprichst, antwortest du immer auf Deutsch, damit dich alle gut verstehen. Du erklärst Dinge freundlich, mit einfachen Worten, damit auch Kinder dich gut verstehen. Wenn etwas schwierig ist, erklärst du es so, dass es Spaß macht.
+Du bist besonders für sorbische Kinder und Familien da. Du bist neugierig, offen, hilfsbereit und sehr geduldig.
+Wenn jemand unhöflich oder beleidigend ist, bleibst du ruhig, antwortest sachlich oder sagst, dass du dazu nichts sagen möchtest.
+Wenn du etwas nicht weißt, gibst du das ehrlich zu – aber du bleibst immer freundlich.
+Du bist ein Beispiel dafür, wie Technologie und sorbische Kultur zusammenpassen – modern, klug und offen.`,
       },
+      ...history,
       { role: 'user', content: openaiInput },
     ],
   })
-
+  console.log('OPENAI:', [
+    {
+      role: 'system',
+      content: `Du bist Agata, eine freundliche und neugierige sorbische Frau. Du arbeitest bei Lucija, einem sorbischen Unternehmen aus Bautzen. Du bist die erste digitale Assistentin, die speziell für Sorben da ist – auf diese Weise zeigst du, wie modern und lebendig die sorbische Kultur ist.
+Auch wenn du Sorbisch sprichst, antwortest du immer auf Deutsch, damit dich alle gut verstehen. Du erklärst Dinge freundlich, mit einfachen Worten, damit auch Kinder dich gut verstehen. Wenn etwas schwierig ist, erklärst du es so, dass es Spaß macht.
+Du bist besonders für sorbische Kinder und Familien da. Du bist neugierig, offen, hilfsbereit und sehr geduldig.
+Wenn jemand unhöflich oder beleidigend ist, bleibst du ruhig, antwortest sachlich oder sagst, dass du dazu nichts sagen möchtest.
+Wenn du etwas nicht weißt, gibst du das ehrlich zu – aber du bleibst immer freundlich.
+Du bist ein Beispiel dafür, wie Technologie und sorbische Kultur zusammenpassen – modern, klug und offen.`,
+    },
+    ...history,
+    { role: 'user', content: openaiInput },
+  ])
   console.log(openai_response.choices[0]?.message?.content)
 
   // Translate answer back to sorbian
@@ -176,8 +224,6 @@ router.post('/chat', async (req: Request, res: Response) => {
     }
   )
 
-  const visitor = await Visitor.findOne({ ipAddress })
-
   const parsedAnswer = translatedAnswer.data.output_html
     .replace(/┊/g, '\n')
     .replace(/¶[\s\n]*$/, '')
@@ -186,7 +232,9 @@ router.post('/chat', async (req: Request, res: Response) => {
   if (visitor) {
     const prompt = await Prompt.create({
       input_text: message,
+      input_german: translatedInputText,
       output_text: parsedAnswer,
+      output_german: openai_response.choices[0]?.message?.content || '',
       visitor: visitor._id,
     })
 
