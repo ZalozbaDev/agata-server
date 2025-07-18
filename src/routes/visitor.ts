@@ -5,9 +5,19 @@ const router = Router()
 
 const ipLocks: Record<string, boolean> = {}
 
-router.get('/', async (_req: Request, res: Response) => {
+router.get('/', async (req: Request, res: Response) => {
   try {
-    const visitors = await Visitor.find()
+    const { today } = req.query
+    const visitors = await Visitor.find(
+      today
+        ? {
+            lastVisitedAt: {
+              $gte: new Date(new Date().setDate(new Date().getDate() - 1)),
+              $lte: new Date(new Date().setDate(new Date().getDate() + 1)),
+            },
+          }
+        : {}
+    )
     res.json({ message: 'Visitor GET endpoint', visitors })
   } catch (error) {
     res.status(500).json({ message: 'Error fetching visitors', error })
