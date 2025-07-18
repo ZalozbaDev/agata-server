@@ -9,7 +9,7 @@ import { substitutionPlanService } from '../services/substitutionPlan'
 import { dataManagerService } from '../services/dataManager'
 // import { dataFetcherService } from '../services/dataFetcher'
 import { Url } from '../models/Url'
-import { FetchedData, IFetchedData } from '../models/FetchedData'
+import { FetchedData } from '../models/FetchedData'
 import bamborakRoutes from './bamborak'
 import { Prompt } from '../models/Prompt'
 import { Visitor } from '../models/Visitor'
@@ -107,48 +107,58 @@ router.post('/chat', async (req: Request, res: Response) => {
   }
 
   // First, try to find relevant data in the database
-  let relevantData: IFetchedData[] = []
+  // let relevantData: IFetchedData[] = []
   let dataContext = ''
   let dataSources: { url: string; title: string }[] = []
 
-  try {
-    relevantData = await dataManagerService.getRelevantData(message || '')
-    if (relevantData.length > 0) {
-      dataContext = await dataManagerService.generateContextFromData(
-        relevantData
-      )
-      dataSources = relevantData.map(d => ({ url: d.url, title: d.title }))
-      console.log(
-        `Found ${relevantData.length} relevant data sources in database`
-      )
-    }
-  } catch (error) {
-    console.error('Error searching database:', error)
-  }
+  // try {
+  //   relevantData = await dataManagerService.getRelevantData(message || '')
+  //   if (relevantData.length > 0) {
+  //     dataContext = await dataManagerService.generateContextFromData(
+  //       relevantData
+  //     )
+  //     dataSources = relevantData.map(d => ({ url: d.url, title: d.title }))
+  //     console.log(
+  //       `Found ${relevantData.length} relevant data sources in database`
+  //     )
+  //   }
+  // } catch (error) {
+  //   console.error('Error searching database:', error)
+  // }
 
   // Prepare context for OpenAI
   let openaiInput = translatedInputText || ''
-  let systemPrompt =
-    'Du bist ein hilfreicher Assistent. Die eingebene Frage ist auf Obersorbisch. Antworte bitte auch auf Obersorbisch'
+  // let systemPrompt =
+  //   'Du bist ein hilfreicher Assistent. Die eingebene Frage ist auf Obersorbisch. Antworte bitte auch auf Obersorbisch'
 
-  if (isWeatherQuery && weatherInfo) {
-    openaiInput = `Aktuelle Wetterdaten: ${weatherInfo}\n\nBenutzerfrage: ${translatedInputText}\n\nBitte beantworte die Frage unter Berücksichtigung der aktuellen Wetterdaten.`
-  }
+  // if (isWeatherQuery && weatherInfo) {
+  //   openaiInput = `Aktuelle Wetterdaten: ${weatherInfo}\n\nBenutzerfrage: ${translatedInputText}\n\nBitte beantworte die Frage unter Berücksichtigung der aktuellen Wetterdaten.`
+  // }
 
-  if (isSubstitutionQuery && substitutionInfo) {
-    openaiInput = `Aktueller Vertretungsplan: ${substitutionInfo}\n\nBenutzerfrage: ${translatedInputText}\n\nBitte beantworte die Frage unter Berücksichtigung des aktuellen Vertretungsplans.`
-  }
+  // if (isSubstitutionQuery && substitutionInfo) {
+  //   openaiInput = `Aktueller Vertretungsplan: ${substitutionInfo}\n\nBenutzerfrage: ${translatedInputText}\n\nBitte beantworte die Frage unter Berücksichtigung des aktuellen Vertretungsplans.`
+  // }
 
-  if (dataContext) {
-    systemPrompt = `Du bist ein hilfreicher Assistent mit Zugang zu aktuellen Informationen. Antworte auf Deutsch und nutze die bereitgestellten Informationen, wenn sie relevant sind. Wenn sie nicht passen, antworte mit deinem globalen Wissen. Informationen: ${dataContext}. Fasse dich kurz und präzise.`
-    openaiInput = `Benutzerfrage: ${translatedInputText}\n\n.`
-  }
+  // if (dataContext) {
+  //   systemPrompt = `Du bist ein hilfreicher Assistent mit Zugang zu aktuellen Informationen. Antworte auf Deutsch und nutze die bereitgestellten Informationen, wenn sie relevant sind. Wenn sie nicht passen, antworte mit deinem globalen Wissen. Informationen: ${dataContext}. Fasse dich kurz und präzise.`
+  //   openaiInput = `Benutzerfrage: ${translatedInputText}\n\n.`
+  // }
+
+  if (dataContext.length < 0) console.log(dataContext)
 
   // Ask openai what to answer to that question is
   const openai_response = await openAI.chat.completions.create({
     model: OPEN_AI_MODEL,
+    // messages: [
+    //   { role: 'system', content: systemPrompt },
+    //   { role: 'user', content: openaiInput },
+    // ],
     messages: [
-      { role: 'system', content: systemPrompt },
+      {
+        role: 'system',
+        content:
+          'You are a system that has to answer also data that are up to date. Dont use just old data from the web, but also new data like.',
+      },
       { role: 'user', content: openaiInput },
     ],
   })
