@@ -154,11 +154,10 @@ router.post('/chat', async (req: Request, res: Response) => {
     //   { role: 'user', content: openaiInput },
     // ],
     messages: [
-      // {
-      //   role: 'system',
-      //   content:
-      //     'You are a system that has to answer also data that are up to date. Dont use just old data from the web, but also new data like.',
-      // },
+      {
+        role: 'system',
+        content: 'Antworte die Frage auf Deutsch.',
+      },
       { role: 'user', content: openaiInput },
     ],
   })
