@@ -1,5 +1,6 @@
 import axios from 'axios'
 import { Router, Request, Response } from 'express'
+import mongoose from 'mongoose'
 import { openAI } from '..'
 import urlRoutes from './urls'
 import visitorRoutes from './visitor'
@@ -10,6 +11,8 @@ import { dataManagerService } from '../services/dataManager'
 import { Url } from '../models/Url'
 import { FetchedData, IFetchedData } from '../models/FetchedData'
 import bamborakRoutes from './bamborak'
+import { Prompt } from '../models/Prompt'
+import { Visitor } from '../models/Visitor'
 
 const router = Router()
 
@@ -47,7 +50,7 @@ router.get('/', (_req: Request, res: Response) => {
 })
 
 router.post('/chat', async (req: Request, res: Response) => {
-  const { message } = req.body
+  const { message, ipAddress } = req.body
 
   // Translate the chat message from user to german
   const translatedInput = await axios.post(
@@ -161,6 +164,26 @@ router.post('/chat', async (req: Request, res: Response) => {
       text: openai_response.choices[0]?.message?.content || '',
     }
   )
+
+  const visitor = await Visitor.findOne({ ipAddress })
+
+  console.log({
+    input_text: translatedInputText,
+    output_text: translatedAnswer.data.output_html,
+    visitor: visitor?._id,
+  })
+
+  if (visitor) {
+    const prompt = await Prompt.create({
+      input_text: translatedInputText,
+      output_text: translatedAnswer.data.output_html,
+      visitor: visitor._id,
+    })
+
+    // Add the prompt to the visitor's prompts array
+    visitor.prompts.push(prompt._id as mongoose.Types.ObjectId)
+    await visitor.save()
+  }
 
   res.send({
     message: translatedAnswer.data.output_text,

@@ -1,11 +1,10 @@
 import mongoose, { Document, Schema } from 'mongoose'
-import { IPrompt } from './Prompt'
 
 export interface IVisitor extends Document {
   createdAt: Date
   lastVisitedAt: Date[]
   ipAddress: string
-  prompts: IPrompt[]
+  prompts: mongoose.Types.ObjectId[]
 }
 
 const visitorSchema = new Schema<IVisitor>({

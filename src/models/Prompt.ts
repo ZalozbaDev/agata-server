@@ -1,11 +1,10 @@
 import mongoose, { Document, Schema } from 'mongoose'
-import { IVisitor } from './Visitor'
 
 export interface IPrompt extends Document {
   createdAt: Date
-  input: string
-  output: string
-  visitorId: IVisitor
+  input_text: string
+  output_text: string
+  visitor: Schema.Types.ObjectId
 }
 
 const promptSchema = new Schema<IPrompt>({
@@ -14,18 +13,18 @@ const promptSchema = new Schema<IPrompt>({
     required: true,
     default: Date.now,
   },
-  input: {
+  input_text: {
     type: String,
     required: true,
     trim: true,
   },
-  output: {
+  output_text: {
     type: String,
     required: true,
     trim: true,
   },
-  visitorId: {
-    type: mongoose.Types.ObjectId,
+  visitor: {
+    type: Schema.Types.ObjectId,
     required: true,
     ref: 'Visitor',
   },
