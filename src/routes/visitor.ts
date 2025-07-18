@@ -1,5 +1,6 @@
 import { Router, Request, Response } from 'express'
 import { Visitor } from '../models/Visitor'
+import { Prompt } from '../models/Prompt'
 
 const router = Router()
 
@@ -62,10 +63,15 @@ router.post('/', async (req: Request, res: Response) => {
 router.get('/count', async (_req: Request, res: Response) => {
   try {
     const visitors = await Visitor.find({}, 'lastVisitedAt')
+    const prompts = await Prompt.find({})
     const totalCount = visitors.reduce((sum, visitor) => {
       return sum + (visitor.lastVisitedAt ? visitor.lastVisitedAt.length : 0)
     }, 0)
-    res.json({ count: totalCount })
+    res.json({
+      total: totalCount,
+      visitors: visitors.length,
+      prompts: prompts.length,
+    })
   } catch (error) {
     res.status(500).json({ message: 'Error counting visits', error })
   }
