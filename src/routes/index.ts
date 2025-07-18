@@ -62,7 +62,7 @@ router.post('/chat', async (req: Request, res: Response) => {
     }
   )
   console.log(translatedInput.status, translatedInput.statusText)
-  console.log('Translated input:', translatedInput.data.output_html)
+
   const translatedInputText = translatedInput.data.output_html
   console.log('translatedInput: ' + translatedInputText)
 
@@ -178,10 +178,14 @@ router.post('/chat', async (req: Request, res: Response) => {
 
   const visitor = await Visitor.findOne({ ipAddress })
 
+  const parsedAnswer = translatedAnswer.data.output_html
+    .replace(/┊/g, '\n')
+    .trim()
+
   if (visitor) {
     const prompt = await Prompt.create({
       input_text: message,
-      output_text: translatedAnswer.data.output_html,
+      output_text: parsedAnswer,
       visitor: visitor._id,
     })
 
