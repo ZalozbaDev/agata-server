@@ -208,7 +208,9 @@ Du bist ein Beispiel dafür, wie Technologie und sorbische Kultur zusammenpassen
     }
   )
   console.log('status: sotra', translatedAnswer.status)
-  console.log('data: ' + translatedAnswer.data)
+  console.log('data: ' + JSON.stringify(translatedAnswer.data))
+  console.dir(translatedAnswer.data)
+
   console.log('translatedAnswer: ' + translatedAnswer.data.output_html)
 
   const parsedAnswer = translatedAnswer.data.output_html
