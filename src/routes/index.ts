@@ -70,7 +70,7 @@ router.post('/chat', async (req: Request, res: Response) => {
   let weatherInfo = ''
   let substitutionInfo = ''
 
-  const OPEN_AI_MODEL = 'gpt-5'
+  const OPEN_AI_MODEL = 'gpt-4o'
 
   // Handle weather queries
   if (isWeatherQuery) {
