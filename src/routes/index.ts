@@ -197,7 +197,7 @@ Du bist ein Beispiel dafür, wie Technologie und sorbische Kultur zusammenpassen
       { role: 'user', content: openaiInput },
     ],
   })
-
+  console.log('OpenAI response:', openai_response)
   // Translate answer back to sorbian
   const translatedAnswer = await axios.post(
     'https://sotra.app/?uri=/ws/translate/&_version=2.1.10',
@@ -207,6 +207,9 @@ Du bist ein Beispiel dafür, wie Technologie und sorbische Kultur zusammenpassen
       text: openai_response.choices[0]?.message?.content || '',
     }
   )
+  console.log('status: sotra', translatedAnswer.status)
+  console.log('data: ' + translatedAnswer.data)
+  console.log('translatedAnswer: ' + translatedAnswer.data.output_html)
 
   const parsedAnswer = translatedAnswer.data.output_html
     .replace(/┊/g, '\n')
