@@ -54,7 +54,7 @@ router.post('/chat', async (req: Request, res: Response) => {
   console.log('Received message:', message, 'from IP:', ipAddress)
   // Translate the chat message from user to german
   const translatedInput = await axios.post(
-    'https://sotra.app/?uri=/ws/translate/&_version=2.1.10',
+    'https://sotra.app/?uri=/ws/translate/&_version=2.1.11',
     {
       direction: 'hsb_de',
       warnings: false,
