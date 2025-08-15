@@ -54,7 +54,7 @@ router.post('/chat', async (req: Request, res: Response) => {
   console.log('Received message:', message, 'from IP:', ipAddress)
   // Translate the chat message from user to german
   const translatedInput = await axios.post(
-    'https://sotra.app/?uri=/ws/translate/&_version=2.1.10',
+    'https://sotra.app/?uri=/ws/translate/&_version=2.1.11',
     {
       direction: 'hsb_de',
       warnings: false,
@@ -62,7 +62,6 @@ router.post('/chat', async (req: Request, res: Response) => {
     }
   )
   const translatedInputText = translatedInput.data.output_html
-  console.log('translatedInput: ' + translatedInputText)
 
   // Check if the message is about weather or substitution plan
   const isWeatherQuery = weatherService.isWeatherQuery(message)
@@ -197,21 +196,16 @@ Du bist ein Beispiel dafür, wie Technologie und sorbische Kultur zusammenpassen
       { role: 'user', content: openaiInput },
     ],
   })
-  console.log('OpenAI response:', openai_response)
+
   // Translate answer back to sorbian
   const translatedAnswer = await axios.post(
-    'https://sotra.app/?uri=/ws/translate/&_version=2.1.10',
+    'https://sotra.app/?uri=/ws/translate/&_version=2.1.11',
     {
       direction: 'de_hsb',
       warnings: false,
       text: openai_response.choices[0]?.message?.content || '',
     }
   )
-  console.log('status: sotra', translatedAnswer.status)
-  console.log('data: ' + JSON.stringify(translatedAnswer.data))
-  console.dir(translatedAnswer.data)
-
-  console.log('translatedAnswer: ' + translatedAnswer.data.output_html)
 
   const parsedAnswer = translatedAnswer.data.output_html
     .replace(/┊/g, '\n')
@@ -232,8 +226,6 @@ Du bist ein Beispiel dafür, wie Technologie und sorbische Kultur zusammenpassen
     await visitor.save()
   }
 
-  console.log('OpenAI response:', openai_response.choices[0]?.message?.content)
-  console.log('Translated response:', parsedAnswer)
   res.send({
     message: parsedAnswer,
     timestamp: new Date().toISOString(),
