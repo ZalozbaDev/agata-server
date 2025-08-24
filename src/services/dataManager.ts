@@ -4,6 +4,7 @@ import { openAI } from '../index'
 import { Url, IUrl } from '../models/Url'
 import * as cheerio from 'cheerio'
 import { URL } from 'url'
+import { OPEN_AI_MODEL } from '../config/constants'
 
 export class DataManagerService {
   constructor() {
@@ -852,7 +853,7 @@ Response format: id1,id2,id3 or "none"
 `
 
       const response = await openAI.chat.completions.create({
-        model: 'gpt-4o-mini',
+        model: OPEN_AI_MODEL,
         messages: [{ role: 'user', content: prompt }],
         max_tokens: 50,
       })

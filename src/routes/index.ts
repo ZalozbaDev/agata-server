@@ -13,6 +13,7 @@ import { FetchedData } from '../models/FetchedData'
 import bamborakRoutes from './bamborak'
 import { Prompt } from '../models/Prompt'
 import { Visitor } from '../models/Visitor'
+import { OPEN_AI_MODEL } from '../config/constants'
 
 const router = Router()
 
@@ -69,8 +70,6 @@ router.post('/chat', async (req: Request, res: Response) => {
     substitutionPlanService.isSubstitutionQuery(message)
   let weatherInfo = ''
   let substitutionInfo = ''
-
-  const OPEN_AI_MODEL = 'gpt-4o'
 
   // Handle weather queries
   if (isWeatherQuery) {
