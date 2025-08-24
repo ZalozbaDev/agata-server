@@ -55,7 +55,7 @@ router.post('/chat', async (req: Request, res: Response) => {
   console.log('Received message:', message, 'from IP:', ipAddress)
   // Translate the chat message from user to german
   const translatedInput = await axios.post(
-    'https://sotra.app/?uri=/ws/translate/&_version=2.1.11',
+    `https://sotra.app/?uri=/ws/translate/&api_key=${process.env['SOTRA_API_KEY']}`,
     {
       direction: 'hsb_de',
       warnings: false,
@@ -198,7 +198,7 @@ Du bist ein Beispiel dafür, wie Technologie und sorbische Kultur zusammenpassen
 
   // Translate answer back to sorbian
   const translatedAnswer = await axios.post(
-    'https://sotra.app/?uri=/ws/translate/&_version=2.1.11',
+    `https://sotra.app/?uri=/ws/translate/&api_key=${process.env['SOTRA_API_KEY']}`,
     {
       direction: 'de_hsb',
       warnings: false,
