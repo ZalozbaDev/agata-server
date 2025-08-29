@@ -4,7 +4,6 @@ import mongoose from 'mongoose'
 import { openAI } from '..'
 import urlRoutes from './urls'
 import visitorRoutes from './visitor'
-import { weatherService } from '../services/weather'
 import { substitutionPlanService } from '../services/substitutionPlan'
 import { dataManagerService } from '../services/dataManager'
 // import { dataFetcherService } from '../services/dataFetcher'
@@ -13,6 +12,7 @@ import { FetchedData } from '../models/FetchedData'
 import bamborakRoutes from './bamborak'
 import { Prompt } from '../models/Prompt'
 import { Visitor } from '../models/Visitor'
+import { OPEN_AI_MODEL } from '../config/constants'
 
 const router = Router()
 
@@ -40,7 +40,6 @@ router.get('/', (_req: Request, res: Response) => {
       bamborak: '/api/bamborak',
     },
     features: {
-      weather: 'Weather queries (wjedro, temperatura, etc.)',
       substitution: 'Substitution plan queries (zastup, vertretung, etc.)',
       dataSearch: 'Search through stored data sources',
       audioGeneration: 'Text-to-speech with viseme generation for lip-sync',
@@ -54,7 +53,7 @@ router.post('/chat', async (req: Request, res: Response) => {
   console.log('Received message:', message, 'from IP:', ipAddress)
   // Translate the chat message from user to german
   const translatedInput = await axios.post(
-    'https://sotra.app/?uri=/ws/translate/&_version=2.1.11',
+    `https://sotra.app/?uri=/ws/translate/&api_key=${process.env['SOTRA_API_KEY']}`,
     {
       direction: 'hsb_de',
       warnings: false,
@@ -63,34 +62,9 @@ router.post('/chat', async (req: Request, res: Response) => {
   )
   const translatedInputText = translatedInput.data.output_html
 
-  // Check if the message is about weather or substitution plan
-  const isWeatherQuery = weatherService.isWeatherQuery(message)
   const isSubstitutionQuery =
     substitutionPlanService.isSubstitutionQuery(message)
-  let weatherInfo = ''
   let substitutionInfo = ''
-
-  const OPEN_AI_MODEL = 'gpt-4o'
-
-  // Handle weather queries
-  if (isWeatherQuery) {
-    const city = await openAI.chat.completions.create({
-      model: OPEN_AI_MODEL,
-      messages: [
-        {
-          role: 'user',
-          content: 'Get the city from this text: ' + translatedInputText,
-        },
-      ],
-    })
-    const weather = await weatherService.getCurrentWeather(
-      city.choices[0]?.message?.content || ''
-    )
-    if (weather) {
-      console.log('weather', weather)
-      weatherInfo = weatherService.formatWeatherResponse(weather)
-    }
-  }
 
   // Handle substitution plan queries
   if (isSubstitutionQuery) {
@@ -128,10 +102,6 @@ router.post('/chat', async (req: Request, res: Response) => {
   let openaiInput = translatedInputText || ''
   // let systemPrompt =
   //   'Du bist ein hilfreicher Assistent. Die eingebene Frage ist auf Obersorbisch. Antworte bitte auch auf Obersorbisch'
-
-  // if (isWeatherQuery && weatherInfo) {
-  //   openaiInput = `Aktuelle Wetterdaten: ${weatherInfo}\n\nBenutzerfrage: ${translatedInputText}\n\nBitte beantworte die Frage unter Berücksichtigung der aktuellen Wetterdaten.`
-  // }
 
   // if (isSubstitutionQuery && substitutionInfo) {
   //   openaiInput = `Aktueller Vertretungsplan: ${substitutionInfo}\n\nBenutzerfrage: ${translatedInputText}\n\nBitte beantworte die Frage unter Berücksichtigung des aktuellen Vertretungsplans.`
@@ -199,7 +169,7 @@ Du bist ein Beispiel dafür, wie Technologie und sorbische Kultur zusammenpassen
 
   // Translate answer back to sorbian
   const translatedAnswer = await axios.post(
-    'https://sotra.app/?uri=/ws/translate/&_version=2.1.11',
+    `https://sotra.app/?uri=/ws/translate/&api_key=${process.env['SOTRA_API_KEY']}`,
     {
       direction: 'de_hsb',
       warnings: false,
@@ -229,7 +199,6 @@ Du bist ein Beispiel dafür, wie Technologie und sorbische Kultur zusammenpassen
   res.send({
     message: parsedAnswer,
     timestamp: new Date().toISOString(),
-    weatherData: isWeatherQuery && weatherInfo ? weatherInfo : undefined,
     substitutionData:
       isSubstitutionQuery && substitutionInfo ? substitutionInfo : undefined,
     dataSources: dataSources.length > 0 ? dataSources : undefined,
