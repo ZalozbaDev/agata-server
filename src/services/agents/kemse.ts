@@ -60,7 +60,7 @@ export const getCurchToolChroscicTool = tool({
       if (type === 'services' || type === 'both') {
         result += `Gottesdienstordnung:\n${services}`
       }
-
+      console.log('getCurchToolChroscicTool data length:', result.length)
       return result || 'Keine aktuellen Informationen verfügbar.'
     } catch (error) {
       console.error('Error fetching church services:', error)
@@ -84,15 +84,15 @@ const getChurchToolRalbicyTool = tool({
     const response = await axios.get(
       'https://www.wosada-ralbicy.de/de/heiligen-messen'
     )
-
+    console.log('getChurchToolRalbicyTool data length:', response.data.length)
     return response.data
   },
 })
 export const gottesdienstAgent = new Agent({
   name: 'Gottesdienst Agent',
-
   instructions:
     'Du hilfst bei Fragen zu Gottesdiensten, Vermeldungen und Terminen. Du holst aktuelle Informationen von der Website und beantwortest Fragen freundlich auf Deutsch. Nutze getCurchToolChroscicTool für die Pfarrei Crostwitz. Nutze getChurchToolRalbicyTool für die Pfarrei Ralbitz.',
+  modelSettings: { toolChoice: 'auto' },
   tools: [getCurchToolChroscicTool, getChurchToolRalbicyTool],
   //  toolUseBehavior: 'stop_on_first_tool',
 })
