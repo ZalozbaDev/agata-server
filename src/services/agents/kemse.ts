@@ -2,7 +2,7 @@ import { Agent, tool } from '@openai/agents'
 import { z } from 'zod'
 import axios from 'axios'
 
-export const getChurchServices = tool({
+export const getCurchToolChroscicTool = tool({
   name: 'get_church_services',
   description:
     'Fetch current church service dates and announcements from Crostwitz parish website.',
@@ -69,9 +69,29 @@ export const getChurchServices = tool({
   },
 })
 
+const getChurchToolRalbicyTool = tool({
+  name: 'get_church_services_ralbicy',
+  description:
+    'Fetch current church service dates and announcements from Ralbitz parish website.',
+  parameters: z.object({
+    type: z
+      .enum(['services', 'announcements', 'both'])
+      .optional()
+      .default('both'),
+  }),
+  async execute({}) {
+    console.log('Fetching church services from Ralbitz parish website...')
+    const response = await axios.get(
+      'https://www.wosada-ralbicy.de/de/heiligen-messen'
+    )
+
+    return response.data
+  },
+})
 export const gottesdienstAgent = new Agent({
   name: 'Gottesdienst Agent',
+
   instructions:
-    'Du hilfst bei Fragen zu Gottesdiensten, Vermeldungen und Terminen der Pfarrei Crostwitz. Du holst aktuelle Informationen von der Website und beantwortest Fragen freundlich auf Deutsch.',
-  tools: [getChurchServices],
+    'Du hilfst bei Fragen zu Gottesdiensten, Vermeldungen und Terminen. Du holst aktuelle Informationen von der Website und beantwortest Fragen freundlich auf Deutsch. Nutze getCurchToolChroscicTool für die Pfarrei Crostwitz. Nutze getChurchToolRalbicyTool für die Pfarrei Ralbitz.',
+  tools: [getCurchToolChroscicTool, getChurchToolRalbicyTool],
 })
