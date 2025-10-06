@@ -1,11 +1,4 @@
-import {
-  Agent,
-  FunctionToolResult,
-  RunContext,
-  tool,
-  ToolsToFinalOutputResult,
-  ToolToFinalOutputFunction,
-} from '@openai/agents'
+import { Agent, tool } from '@openai/agents'
 import { z } from 'zod'
 import axios from 'axios'
 
@@ -67,7 +60,6 @@ export const getCurchToolChroscicTool = tool({
       if (type === 'services' || type === 'both') {
         result += `Gottesdienstordnung:\n${services}`
       }
-      console.log('getCurchToolChroscicTool data length:', result.length)
       return result || 'Keine aktuellen Informationen verfügbar.'
     } catch (error) {
       console.error('Error fetching church services:', error)
@@ -91,33 +83,13 @@ const getChurchToolRalbicyTool = tool({
     const response = await axios.get(
       'https://www.wosada-ralbicy.de/de/heiligen-messen'
     )
-    console.log('getChurchToolRalbicyTool data length:', response.data.length)
     return response.data
   },
 })
-
-const customToolUseBehavior: ToolToFinalOutputFunction = async (
-  _context: RunContext,
-  results: FunctionToolResult[]
-): Promise<ToolsToFinalOutputResult> => {
-  // First function_output result
-  console.log(results)
-  const outputResult = results.find(r => r.type === 'function_output')
-  if (!outputResult) {
-    return { isFinalOutput: false, isInterrupted: undefined }
-  }
-
-  return {
-    isFinalOutput: true,
-    isInterrupted: undefined,
-    finalOutput: outputResult.output as string,
-  }
-}
 
 export const gottesdienstAgent = new Agent({
   name: 'Gottesdienst Agent',
   instructions:
     'Du hilfst bei Fragen zu Gottesdiensten, Vermeldungen und Terminen. Du holst aktuelle Informationen von der Website und beantwortest Fragen freundlich auf Deutsch. Nutze getCurchToolChroscicTool für die Pfarrei Crostwitz. Nutze getChurchToolRalbicyTool für die Pfarrei Ralbitz.',
   tools: [getCurchToolChroscicTool, getChurchToolRalbicyTool],
-  toolUseBehavior: customToolUseBehavior,
 })
