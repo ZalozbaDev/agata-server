@@ -4,6 +4,8 @@ import { Router, Request, Response } from 'express'
 import { openAI } from '..'
 import urlRoutes from './urls'
 import visitorRoutes from './visitor'
+import { triageAgent } from '../services/agents'
+import { run } from '@openai/agents'
 import { substitutionPlanService } from '../services/substitutionPlan'
 import { dataManagerService } from '../services/dataManager'
 // import { dataFetcherService } from '../services/dataFetcher'
@@ -145,27 +147,45 @@ router.post('/chat', async (req: Request, res: Response) => {
   //     content: prompt.input_german,
   //   })) || []
 
-  // Ask openai what to answer to that question is
-  const openai_response = await openAI.chat.completions.create({
-    model: OPEN_AI_MODEL,
-    // messages: [
-    //   { role: 'system', content: systemPrompt },
-    //   { role: 'user', content: openaiInput },
-    // ],
-    messages: [
-      {
-        role: 'system',
-        content: `Du bist Agata, eine freundliche und neugierige sorbische Frau, die seit dem 18.07.2025 im Web ist. Du arbeitest bei Lucija, einem sorbischen Unternehmen aus Bautzen. Du bist die erste digitale Assistentin, die speziell für Sorben da ist – auf diese Weise zeigst du, wie modern und lebendig die sorbische Kultur ist.
+  // Try to use the triageAgent first, fallback to default OpenAI if needed
+  let responseContent = ''
+  let usedAgent = false
+
+  try {
+    // First try the triageAgent to see if it can handle the request
+    const agentResult = await run(triageAgent, openaiInput)
+    const messageItem = agentResult.output.find(a => a.type === 'message')
+
+    if (messageItem && (messageItem as any).content[0]?.text) {
+      responseContent = (messageItem as any).content[0].text
+      usedAgent = true
+      console.log('Used triageAgent for response')
+    }
+  } catch (error) {
+    console.log('TriageAgent failed, falling back to default OpenAI:', error)
+  }
+
+  // If agent didn't provide a response, use default OpenAI
+  if (!usedAgent) {
+    const openai_response = await openAI.chat.completions.create({
+      model: OPEN_AI_MODEL,
+      messages: [
+        {
+          role: 'system',
+          content: `Du bist Agata, eine freundliche und neugierige sorbische Frau, die seit dem 18.07.2025 im Web ist. Du arbeitest bei Lucija, einem sorbischen Unternehmen aus Bautzen. Du bist die erste digitale Assistentin, die speziell für Sorben da ist – auf diese Weise zeigst du, wie modern und lebendig die sorbische Kultur ist.
 Auch wenn du Sorbisch sprichst, antwortest du immer auf Deutsch, damit dich alle gut verstehen. Du erklärst Dinge freundlich, mit einfachen Worten, damit auch Kinder dich gut verstehen. Wenn etwas schwierig ist, erklärst du es so, dass es Spaß macht.
 Du bist besonders für sorbische Kinder und Familien da. Du bist neugierig, offen, hilfsbereit und sehr geduldig.
 Wenn jemand unhöflich oder beleidigend ist, bleibst du ruhig, antwortest sachlich oder sagst, dass du dazu nichts sagen möchtest.
 Wenn du etwas nicht weißt, gibst du das ehrlich zu – aber du bleibst immer freundlich.
 Du bist ein Beispiel dafür, wie Technologie und sorbische Kultur zusammenpassen – modern, klug und offen.`,
-      },
-      ...history,
-      { role: 'user', content: openaiInput },
-    ],
-  })
+        },
+        ...history,
+        { role: 'user', content: openaiInput },
+      ],
+    })
+    responseContent = openai_response.choices[0]?.message?.content || ''
+    console.log('Used default OpenAI for response')
+  }
 
   // Translate answer back to sorbian
   const translatedAnswer = await axios.post(
@@ -173,7 +193,7 @@ Du bist ein Beispiel dafür, wie Technologie und sorbische Kultur zusammenpassen
     {
       direction: 'de_hsb',
       warnings: false,
-      text: openai_response.choices[0]?.message?.content || '',
+      text: responseContent,
     }
   )
 
