@@ -207,7 +207,7 @@ Du bist ein Beispiel dafür, wie Technologie und sorbische Kultur zusammenpassen
       input_text: message,
       input_german: translatedInputText,
       output_text: parsedAnswer,
-      output_german: openai_response.choices[0]?.message?.content || '',
+      output_german: responseContent || '',
       visitor: visitor._id,
     })
 
