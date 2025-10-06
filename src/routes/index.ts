@@ -1,6 +1,6 @@
 import axios from 'axios'
 import { Router, Request, Response } from 'express'
-// import mongoose from 'mongoose'
+import mongoose from 'mongoose'
 import { openAI } from '..'
 import urlRoutes from './urls'
 import visitorRoutes from './visitor'
@@ -12,9 +12,8 @@ import { dataManagerService } from '../services/dataManager'
 import { Url } from '../models/Url'
 import { FetchedData } from '../models/FetchedData'
 import bamborakRoutes from './bamborak'
-// import { Prompt } from '../models/Prompt'
-// import { Visitor } from '../models/Visitor'
-
+import { Prompt } from '../models/Prompt'
+import { Visitor } from '../models/Visitor'
 import { OPEN_AI_MODEL } from '../config/constants'
 
 const router = Router()
@@ -116,32 +115,32 @@ router.post('/chat', async (req: Request, res: Response) => {
   // }
 
   if (dataContext.length < 0) console.log(dataContext)
-  // const visitor = await Visitor.findOne({ ipAddress }).populate({
-  //   path: 'prompts',
-  //   model: 'Prompt',
-  //   select: 'input_text input_german output_text output_german',
-  //   options: { sort: { _id: -1 }, limit: 3 },
-  // })
+  const visitor = await Visitor.findOne({ ipAddress }).populate({
+    path: 'prompts',
+    model: 'Prompt',
+    select: 'input_text input_german output_text output_german',
+    options: { sort: { _id: -1 }, limit: 3 },
+  })
 
   const history: { role: 'assistant' | 'user'; content: string }[] = []
-  // if (visitor)
-  //   for (let index = 0; index < visitor?.prompts.length; index++) {
-  //     const prompt = visitor?.prompts[index] as any
-  //     if (
-  //       typeof prompt === 'object' &&
-  //       prompt !== null &&
-  //       'input_german' in prompt
-  //     ) {
-  //       history.push({
-  //         role: 'user',
-  //         content: prompt.input_german || prompt.input_text || '',
-  //       })
-  //       history.push({
-  //         role: 'assistant',
-  //         content: prompt.output_german || prompt.output_text || '',
-  //       })
-  //     }
-  //   }
+  if (visitor)
+    for (let index = 0; index < visitor?.prompts.length; index++) {
+      const prompt = visitor?.prompts[index] as any
+      if (
+        typeof prompt === 'object' &&
+        prompt !== null &&
+        'input_german' in prompt
+      ) {
+        history.push({
+          role: 'user',
+          content: prompt.input_german || prompt.input_text || '',
+        })
+        history.push({
+          role: 'assistant',
+          content: prompt.output_german || prompt.output_text || '',
+        })
+      }
+    }
   // const history =
   //   visitor?.prompts.map(prompt => ({
   //     role: 'user',
@@ -203,19 +202,19 @@ Du bist ein Beispiel dafür, wie Technologie und sorbische Kultur zusammenpassen
     .replace(/¶[\s\n]*$/, '')
     .trim()
 
-  // if (visitor) {
-  //   const prompt = await Prompt.create({
-  //     input_text: message,
-  //     input_german: translatedInputText,
-  //     output_text: parsedAnswer,
-  //     output_german: openai_response.choices[0]?.message?.content || '',
-  //     visitor: visitor._id,
-  //   })
+  if (visitor) {
+    const prompt = await Prompt.create({
+      input_text: message,
+      input_german: translatedInputText,
+      output_text: parsedAnswer,
+      output_german: openai_response.choices[0]?.message?.content || '',
+      visitor: visitor._id,
+    })
 
-  //   // Add the prompt to the visitor's prompts array
-  //   visitor.prompts.push(prompt._id as mongoose.Types.ObjectId)
-  //   await visitor.save()
-  // }
+    // Add the prompt to the visitor's prompts array
+    visitor.prompts.push(prompt._id as mongoose.Types.ObjectId)
+    await visitor.save()
+  }
 
   res.send({
     message: parsedAnswer,
