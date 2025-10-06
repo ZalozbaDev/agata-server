@@ -94,5 +94,5 @@ export const gottesdienstAgent = new Agent({
   instructions:
     'Du hilfst bei Fragen zu Gottesdiensten, Vermeldungen und Terminen. Du holst aktuelle Informationen von der Website und beantwortest Fragen freundlich auf Deutsch. Nutze getCurchToolChroscicTool für die Pfarrei Crostwitz. Nutze getChurchToolRalbicyTool für die Pfarrei Ralbitz.',
   tools: [getCurchToolChroscicTool, getChurchToolRalbicyTool],
-  toolUseBehavior: 'stop_on_first_tool',
+  //  toolUseBehavior: 'stop_on_first_tool',
 })
