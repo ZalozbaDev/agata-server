@@ -14,6 +14,7 @@ import { FetchedData } from '../models/FetchedData'
 import bamborakRoutes from './bamborak'
 // import { Prompt } from '../models/Prompt'
 // import { Visitor } from '../models/Visitor'
+import agentRoutes from './agents'
 import { OPEN_AI_MODEL } from '../config/constants'
 
 const router = Router()
@@ -286,5 +287,6 @@ router.get('/data', async (req: Request, res: Response) => {
 router.use('/urls', urlRoutes)
 router.use('/bamborak', bamborakRoutes)
 router.use('/visitors', visitorRoutes)
+router.use('/agents', agentRoutes)
 
 export default router
