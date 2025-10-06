@@ -1,4 +1,11 @@
-import { Agent, tool } from '@openai/agents'
+import {
+  Agent,
+  FunctionToolResult,
+  RunContext,
+  tool,
+  ToolsToFinalOutputResult,
+  ToolToFinalOutputFunction,
+} from '@openai/agents'
 import { z } from 'zod'
 import axios from 'axios'
 
@@ -88,11 +95,29 @@ const getChurchToolRalbicyTool = tool({
     return response.data
   },
 })
+
+const customToolUseBehavior: ToolToFinalOutputFunction = async (
+  _context: RunContext,
+  results: FunctionToolResult[]
+): Promise<ToolsToFinalOutputResult> => {
+  // First function_output result
+  console.log(results)
+  const outputResult = results.find(r => r.type === 'function_output')
+  if (!outputResult) {
+    return { isFinalOutput: false, isInterrupted: undefined }
+  }
+
+  return {
+    isFinalOutput: true,
+    isInterrupted: undefined,
+    finalOutput: outputResult.output as string,
+  }
+}
+
 export const gottesdienstAgent = new Agent({
   name: 'Gottesdienst Agent',
   instructions:
     'Du hilfst bei Fragen zu Gottesdiensten, Vermeldungen und Terminen. Du holst aktuelle Informationen von der Website und beantwortest Fragen freundlich auf Deutsch. Nutze getCurchToolChroscicTool für die Pfarrei Crostwitz. Nutze getChurchToolRalbicyTool für die Pfarrei Ralbitz.',
-  modelSettings: { toolChoice: 'auto' },
   tools: [getCurchToolChroscicTool, getChurchToolRalbicyTool],
-  //  toolUseBehavior: 'stop_on_first_tool',
+  toolUseBehavior: customToolUseBehavior,
 })
