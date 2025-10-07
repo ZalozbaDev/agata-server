@@ -54,15 +54,35 @@ router.post('/chat', async (req: Request, res: Response) => {
   const { message, ipAddress } = req.body
   console.log('Received message:', message, 'from IP:', ipAddress)
   // Translate the chat message from user to german
-  const translatedInput = await axios.post(
-    `https://sotra.app/?uri=/ws/translate/&api_key=${process.env['SOTRA_API_KEY']}`,
-    {
-      direction: 'hsb_de',
-      warnings: false,
-      text: message,
-    }
-  )
-  const translatedInputText = translatedInput.data.output_html
+  let translatedInputText = ''
+  if (process.env['SOTRA_LOCAL_URL'] === undefined) {
+    const translatedInput = await axios.post(
+      `https://sotra.app/?uri=/ws/translate/&api_key=${process.env['SOTRA_API_KEY']}`,
+      {
+        direction: 'hsb_de',
+        warnings: false,
+        text: message,
+      }
+    )
+    translatedInputText = translatedInput.data.output_html
+  } else {
+    const translatedInput = await axios.post(
+      `${process.env['SOTRA_LOCAL_URL']}/translate`,
+      {
+        source_language: 'hsb',
+        target_language: 'de',
+        text: message,
+      }
+    )
+    translatedInputText = translatedInput.data.marked_translation
+      .map((item: string[]) => item.join(' '))
+      .join(' ')
+
+    console.log({
+      translatedInputText,
+      original: translatedInput.data.marked_translation,
+    })
+  }
 
   const isSubstitutionQuery =
     substitutionPlanService.isSubstitutionQuery(message)
@@ -190,36 +210,57 @@ Du bist ein Beispiel dafür, wie Technologie und sorbische Kultur zusammenpassen
   }
 
   // Translate answer back to sorbian
-  const translatedAnswer = await axios.post(
-    `https://sotra.app/?uri=/ws/translate/&api_key=${process.env['SOTRA_API_KEY']}`,
-    {
-      direction: 'de_hsb',
-      warnings: false,
-      text: responseContent,
-    }
-  )
+  let translatedAnswer = ''
+  if (process.env['SOTRA_LOCAL_URL'] === undefined) {
+    const translatedInput = await axios.post(
+      `https://sotra.app/?uri=/ws/translate/&api_key=${process.env['SOTRA_API_KEY']}`,
+      {
+        direction: 'hsb_de',
+        warnings: false,
+        text: message,
+      }
+    )
+    responseContent = translatedInput.data.output_html
 
-  const parsedAnswer = translatedAnswer.data.output_html
-    .replace(/┊/g, '\n')
-    .replace(/¶[\s\n]*$/, '')
-    .trim()
-
-  if (visitor) {
-    const prompt = await Prompt.create({
-      input_text: message,
-      input_german: translatedInputText,
-      output_text: parsedAnswer,
-      output_german: responseContent || '',
-      visitor: visitor._id,
+    translatedAnswer = responseContent
+      .replace(/┊/g, '\n')
+      .replace(/¶[\s\n]*$/, '')
+      .trim()
+  } else {
+    const translatedInput = await axios.post(
+      `${process.env['SOTRA_LOCAL_URL']}/translate`,
+      {
+        source_language: 'de',
+        target_language: 'hsb',
+        text: message,
+      }
+    )
+    responseContent = translatedInput.data.marked_translation
+      .map((item: string[]) => item.join(' '))
+      .join(' ')
+    translatedAnswer = responseContent
+    console.log({
+      translatedAnswer,
+      original: translatedInput.data.marked_translation,
     })
-
-    // Add the prompt to the visitor's prompts array
-    visitor.prompts.push(prompt._id as mongoose.Types.ObjectId)
-    await visitor.save()
   }
 
+  // if (visitor) {
+  //   const prompt = await Prompt.create({
+  //     input_text: message,
+  //     input_german: translatedInputText,
+  //     output_text: parsedAnswer,
+  //     output_german: responseContent || '',
+  //     visitor: visitor._id,
+  //   })
+
+  //   // Add the prompt to the visitor's prompts array
+  //   visitor.prompts.push(prompt._id as mongoose.Types.ObjectId)
+  //   await visitor.save()
+  // }
+
   res.send({
-    message: parsedAnswer,
+    message: translatedAnswer,
     timestamp: new Date().toISOString(),
     substitutionData:
       isSubstitutionQuery && substitutionInfo ? substitutionInfo : undefined,
