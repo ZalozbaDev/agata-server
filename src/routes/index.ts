@@ -215,7 +215,7 @@ Du bist ein Beispiel dafür, wie Technologie und sorbische Kultur zusammenpassen
     const translatedInput = await axios.post(
       `https://sotra.app/?uri=/ws/translate/&api_key=${process.env['SOTRA_API_KEY']}`,
       {
-        direction: 'hsb_de',
+        direction: 'de_hsb',
         warnings: false,
         text: responseContent,
       }
@@ -235,27 +235,29 @@ Du bist ein Beispiel dafür, wie Technologie und sorbische Kultur zusammenpassen
         text: responseContent,
       }
     )
-    translatedAnswer = translatedInput.data.marked_translation.map((item:any) => item.join(' ')).join('\n')
+    translatedAnswer = translatedInput.data.marked_translation
+      .map((item: any) => item.join(' '))
+      .join('\n')
     console.log({
-	    openai: responseContent,
+      openai: responseContent,
       translatedAnswer,
       original: translatedInput.data.marked_translation,
     })
   }
 
-   if (visitor) {
-     const prompt = await Prompt.create({
-       input_text: message,
-       input_german: translatedInputText,
-       output_text: translatedAnswer,
-       output_german: responseContent || '',
-       visitor: visitor._id,
-     })
+  if (visitor) {
+    const prompt = await Prompt.create({
+      input_text: message,
+      input_german: translatedInputText,
+      output_text: translatedAnswer,
+      output_german: responseContent || '',
+      visitor: visitor._id,
+    })
 
-     // Add the prompt to the visitor's prompts array
-     visitor.prompts.push(prompt._id as mongoose.Types.ObjectId)
-     await visitor.save()
-   }
+    // Add the prompt to the visitor's prompts array
+    visitor.prompts.push(prompt._id as mongoose.Types.ObjectId)
+    await visitor.save()
+  }
 
   res.send({
     message: translatedAnswer,
