@@ -215,7 +215,7 @@ Du bist ein Beispiel dafür, wie Technologie und sorbische Kultur zusammenpassen
     const translatedInput = await axios.post(
       `https://sotra.app/?uri=/ws/translate/&api_key=${process.env['SOTRA_API_KEY']}`,
       {
-        direction: 'hsb_de',
+        direction: 'de_hsb',
         warnings: false,
         text: responseContent,
       }
