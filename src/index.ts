@@ -67,7 +67,7 @@ wss.on('connection', (twilioWs, req) => {
   console.log('Twilio WS connected:', req.socket.remoteAddress)
 
   // Client-WS zu VOSK
-  const voskUrl = process.env['VOSK_SERVER_URL']
+  const voskUrl = process.env['VOSK_SERVER_URL'] + '/vosk'
   console.log('Connecting to Vosk server at:', voskUrl)
   if (!voskUrl) {
     console.error('VOSK_SERVER_URL fehlt')
@@ -211,9 +211,8 @@ wss.on('connection', (twilioWs, req) => {
       try {
         voskWs.close()
       } catch {}
-      try {
-        twilioWs.close()
-      } catch {}
+      // twilioWs.close()
+
       return
     }
   })
