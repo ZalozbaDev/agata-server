@@ -15,6 +15,7 @@ import bamborakRoutes from './bamborak'
 import { Prompt } from '../models/Prompt'
 import { Visitor } from '../models/Visitor'
 import { OPEN_AI_MODEL } from '../config/constants'
+import hooksRoutes from './hooks'
 
 const router = Router()
 
@@ -62,7 +63,7 @@ router.post('/chat', async (req: Request, res: Response) => {
         direction: 'hsb_de',
         warnings: false,
         text: message,
-      }
+      },
     )
     translatedInputText = translatedInput.data.output_html
   } else {
@@ -72,7 +73,7 @@ router.post('/chat', async (req: Request, res: Response) => {
         source_language: 'hsb',
         target_language: 'de',
         text: message,
-      }
+      },
     )
     translatedInputText = translatedInput.data.marked_translation
       .map((item: string[]) => item.join(' '))
@@ -218,7 +219,7 @@ Du bist ein Beispiel dafür, wie Technologie und sorbische Kultur zusammenpassen
         direction: 'de_hsb',
         warnings: false,
         text: responseContent,
-      }
+      },
     )
     responseContent = translatedInput.data.output_html
 
@@ -233,7 +234,7 @@ Du bist ein Beispiel dafür, wie Technologie und sorbische Kultur zusammenpassen
         source_language: 'de',
         target_language: 'hsb',
         text: responseContent,
-      }
+      },
     )
     translatedAnswer = translatedInput.data.marked_translation
       .map((item: any) => item.join(' '))
@@ -329,5 +330,6 @@ router.get('/data', async (req: Request, res: Response) => {
 router.use('/urls', urlRoutes)
 router.use('/bamborak', bamborakRoutes)
 router.use('/visitors', visitorRoutes)
+router.use('/hooks', hooksRoutes)
 
 export default router
