@@ -62,20 +62,13 @@ const wss = new WebSocketServer({
   path: '/api/hooks/twilio-websocket',
 })
 
-server.on('upgrade', req => {
-  console.log('UPGRADE:', req.url)
-})
-
 // ========= 3) WS: Twilio <-> Vosk Bridge =========
 wss.on('connection', (twilioWs, req) => {
   console.log('Twilio WS connected:', req.socket.remoteAddress)
 
-  const recordId =
-    new URL(req.url ?? '', 'http://localhost').searchParams.get('recordId') ??
-    undefined
-
   // Client-WS zu VOSK
   const voskUrl = process.env['VOSK_SERVER_URL']
+  console.log('Connecting to Vosk server at:', voskUrl)
   if (!voskUrl) {
     console.error('VOSK_SERVER_URL fehlt')
     twilioWs.close()
@@ -191,7 +184,6 @@ wss.on('connection', (twilioWs, req) => {
         streamSid,
         callSid: msg.start?.callSid,
         tracks: msg.start?.tracks,
-        recordId,
       })
       return
     }
