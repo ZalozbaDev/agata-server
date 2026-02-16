@@ -13,6 +13,8 @@ import {
   ttsToMulaw8kBase64,
   TwilioMsg,
   to13DigitMsString,
+  sendAudioToTwilio,
+  clearTwilioPlayback,
 } from './helpers/twilio-socket'
 // import { schedulerService } from './services/scheduler'
 
@@ -59,25 +61,6 @@ const wss = new WebSocketServer({
   server,
   path: '/api/hooks/twilio-websocket',
 })
-
-function sendAudioToTwilio(
-  ws: WebSocket,
-  streamSid: string,
-  mulaw8kBase64: string,
-) {
-  ws.send(
-    JSON.stringify({
-      event: 'media',
-      streamSid,
-      media: { payload: mulaw8kBase64 },
-    }),
-  )
-}
-
-function clearTwilioPlayback(ws: WebSocket, streamSid: string) {
-  // stoppt gepufferte Ausgabe (wichtig bei Barge-in)
-  ws.send(JSON.stringify({ event: 'clear', streamSid }))
-}
 
 // ========= 3) WS: Twilio <-> Vosk Bridge =========
 wss.on('connection', (twilioWs, req) => {

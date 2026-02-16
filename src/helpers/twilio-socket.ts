@@ -1,3 +1,5 @@
+import WebSocket from 'ws'
+
 export type TwilioMsg =
   | { event: 'connected' }
   | {
@@ -47,5 +49,24 @@ export async function ttsToMulaw8kBase64(_text: string): Promise<string> {
   // - TTS liefert PCM/WAV/MP3 -> du konvertierst (z.B. via ffmpeg) zu mulaw 8k raw
   throw new Error(
     'ttsToMulaw8kBase64() ist noch nicht implementiert (TTS Service fehlt).',
+  )
+}
+
+export function clearTwilioPlayback(ws: WebSocket, streamSid: string) {
+  // stoppt gepufferte Ausgabe (wichtig bei Barge-in)
+  ws.send(JSON.stringify({ event: 'clear', streamSid }))
+}
+
+export function sendAudioToTwilio(
+  ws: WebSocket,
+  streamSid: string,
+  mulaw8kBase64: string,
+) {
+  ws.send(
+    JSON.stringify({
+      event: 'media',
+      streamSid,
+      media: { payload: mulaw8kBase64 },
+    }),
   )
 }
