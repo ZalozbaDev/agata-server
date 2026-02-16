@@ -62,6 +62,10 @@ const wss = new WebSocketServer({
   path: '/api/hooks/twilio-websocket',
 })
 
+server.on('upgrade', req => {
+  console.log('UPGRADE:', req.url)
+})
+
 // ========= 3) WS: Twilio <-> Vosk Bridge =========
 wss.on('connection', (twilioWs, req) => {
   console.log('Twilio WS connected:', req.socket.remoteAddress)
