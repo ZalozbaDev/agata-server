@@ -68,7 +68,7 @@ wss.on('connection', (twilioWs, req) => {
 
   // Client-WS zu VOSK
   const voskUrl = process.env['VOSK_SERVER_URL'] + '/vosk'
-  console.log('Connecting to Vosk server at:', voskUrl)
+
   if (!voskUrl) {
     console.error('VOSK_SERVER_URL fehlt')
     twilioWs.close()
@@ -180,11 +180,11 @@ wss.on('connection', (twilioWs, req) => {
 
     if (msg.event === 'start') {
       streamSid = msg.start?.streamSid ?? null
-      console.log('Twilio start:', {
-        streamSid,
-        callSid: msg.start?.callSid,
-        tracks: msg.start?.tracks,
-      })
+      // console.log('Twilio start:', {
+      //   streamSid,
+      //   callSid: msg.start?.callSid,
+      //   tracks: msg.start?.tracks,
+      // })
       return
     }
 
