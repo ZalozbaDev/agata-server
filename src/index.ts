@@ -253,7 +253,7 @@ const startServer = async (): Promise<void> => {
     // )
     // schedulerService.startScheduledFetching(fetchInterval)
     // schedulerService.startScheduledFetching()
-    app.listen(PORT, () => {
+    server.listen(PORT, () => {
       console.log(`🚀 Server running on port ${PORT}`)
       console.log(`📊 Environment: ${process.env['NODE_ENV'] || 'development'}`)
       console.log(`🔗 Health check: http://localhost:${PORT}/health`)
