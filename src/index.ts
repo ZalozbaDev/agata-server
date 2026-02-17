@@ -75,7 +75,7 @@ wss.on('connection', (twilioWs, req) => {
     .toLowerCase()
     .trim()
   const VOSK_TARGET_SAMPLE_RATE = Number(
-    process.env['VOSK_TARGET_SAMPLE_RATE'] ?? '16000',
+    process.env['VOSK_TARGET_SAMPLE_RATE'] ?? '8000',
   )
 
   // Your Vosk/Whisper endpoint looks like a custom proxy (it expects 13-digit timestamp frames).
@@ -176,13 +176,14 @@ wss.on('connection', (twilioWs, req) => {
   }
 
   // Client-WS zu VOSK
-  const voskUrl = process.env['VOSK_SERVER_URL'] + '/vosk'
-
-  if (!voskUrl) {
+  const voskBaseUrl = process.env['VOSK_SERVER_URL']
+  if (!voskBaseUrl) {
     console.error('VOSK_SERVER_URL fehlt')
     twilioWs.close()
     return
   }
+
+  const voskUrl = `${voskBaseUrl.replace(/\/$/, '')}/vosk`
 
   const voskWs = new WebSocket(voskUrl)
   voskWs.binaryType = 'arraybuffer'
@@ -206,13 +207,26 @@ wss.on('connection', (twilioWs, req) => {
     targetSampleRate: shouldConvertMulawToPcm16
       ? Number.isFinite(VOSK_TARGET_SAMPLE_RATE) && VOSK_TARGET_SAMPLE_RATE > 0
         ? VOSK_TARGET_SAMPLE_RATE
-        : 16000
+        : 8000
       : 8000,
   })
 
   voskWs.on('open', () => {
     voskOpen = true
     console.log('Connection to Vosk established 🚀')
+
+    // Send initial config. Your Vosk proxy supports 8000 or 64000; default to 8000 for Twilio.
+    const sampleRate = shouldConvertMulawToPcm16
+      ? Number.isFinite(VOSK_TARGET_SAMPLE_RATE) && VOSK_TARGET_SAMPLE_RATE > 0
+        ? VOSK_TARGET_SAMPLE_RATE
+        : 8000
+      : 8000
+
+    try {
+      voskWs.send(JSON.stringify({ config: { sample_rate: sampleRate } }))
+    } catch (e) {
+      console.warn('Failed to send Vosk config:', e)
+    }
 
     // flush any audio we received before Vosk was ready
     while (pendingAudio.length) {
@@ -453,7 +467,7 @@ wss.on('connection', (twilioWs, req) => {
               Number.isFinite(VOSK_TARGET_SAMPLE_RATE) &&
                 VOSK_TARGET_SAMPLE_RATE > 0
                 ? VOSK_TARGET_SAMPLE_RATE
-                : 16000,
+                : 8000,
             )
           : audioBuffer
         voskWs.send(outAudio)
@@ -466,7 +480,7 @@ wss.on('connection', (twilioWs, req) => {
               Number.isFinite(VOSK_TARGET_SAMPLE_RATE) &&
                 VOSK_TARGET_SAMPLE_RATE > 0
                 ? VOSK_TARGET_SAMPLE_RATE
-                : 16000,
+                : 8000,
             )
           : audioBuffer
 
