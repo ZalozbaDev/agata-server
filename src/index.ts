@@ -82,8 +82,26 @@ wss.on('connection', (twilioWs, req) => {
   let lastFinalText = '' // simple de-dupe
   let mediaFrameCount = 0
   let lastMediaLogAtMs = -1
+  let twilioMsgCount = 0
+  let voskOpen = false
+  const pendingAudio: Buffer[] = []
+  const MAX_PENDING_AUDIO_BYTES = 8000 * 5 // ~5 seconds at 8kHz 8-bit
 
-  voskWs.on('open', () => console.log('Connection to Vosk established 🚀'))
+  voskWs.on('open', () => {
+    voskOpen = true
+    console.log('Connection to Vosk established 🚀')
+
+    // flush any audio we received before Vosk was ready
+    while (pendingAudio.length) {
+      const chunk = pendingAudio.shift()
+      if (!chunk) break
+      try {
+        voskWs.send(chunk)
+      } catch {
+        break
+      }
+    }
+  })
 
   voskWs.on('error', err => {
     console.error('Vosk WebSocket error:', (err as any)?.message ?? err)
@@ -181,7 +199,17 @@ wss.on('connection', (twilioWs, req) => {
   })
 
   // Twilio -> VOSK (Audio forward)
-  twilioWs.on('message', data => {
+  twilioWs.on('message', (data, isBinary) => {
+    twilioMsgCount++
+
+    if (isBinary) {
+      console.warn('Twilio sent binary frame:', {
+        bytes: (data as Buffer).length,
+        msgCount: twilioMsgCount,
+      })
+      return
+    }
+
     const msgStr = data.toString('utf8')
 
     let msg: TwilioMsg
@@ -190,6 +218,10 @@ wss.on('connection', (twilioWs, req) => {
     } catch {
       console.warn('Twilio sent non-JSON:', msgStr)
       return
+    }
+
+    if (msg.event !== 'media') {
+      console.log('Twilio event:', msg.event)
     }
 
     if (msg.event === 'start') {
@@ -214,11 +246,20 @@ wss.on('connection', (twilioWs, req) => {
 
       // 2) audio payload base64 -> binary -> an Vosk
       const payload = msg.media?.payload
-      if (!payload) return
+      if (!payload) {
+        if (mediaFrameCount % 50 === 0) {
+          console.log('Twilio media (no payload):', {
+            ts,
+            frames: mediaFrameCount,
+            msgCount: twilioMsgCount,
+          })
+        }
+        return
+      }
 
       const audioBuffer = Buffer.from(payload, 'base64') // mulaw 8k raw
 
-      // Log roughly once per second (based on Twilio timestamp) to avoid spamming logs
+      // Log roughly once per second (timestamp if available), otherwise every 50 frames
       if (typeof ts === 'number') {
         if (lastMediaLogAtMs < 0 || ts - lastMediaLogAtMs >= 1000) {
           lastMediaLogAtMs = ts
@@ -226,12 +267,31 @@ wss.on('connection', (twilioWs, req) => {
             ts,
             bytes: audioBuffer.length,
             frames: mediaFrameCount,
+            msgCount: twilioMsgCount,
           })
         }
+      } else if (mediaFrameCount % 50 === 0) {
+        console.log('Twilio media:', {
+          ts: null,
+          bytes: audioBuffer.length,
+          frames: mediaFrameCount,
+          msgCount: twilioMsgCount,
+        })
       }
 
-      if (voskWs.readyState === WebSocket.OPEN) {
+      if (voskOpen && voskWs.readyState === WebSocket.OPEN) {
         voskWs.send(audioBuffer)
+      } else {
+        // buffer a bit so we don't drop the initial utterance
+        pendingAudio.push(audioBuffer)
+        let total = 0
+        for (let i = pendingAudio.length - 1; i >= 0; i--) {
+          total += pendingAudio[i]!.length
+          if (total > MAX_PENDING_AUDIO_BYTES) {
+            pendingAudio.splice(0, i)
+            break
+          }
+        }
       }
       return
     }
