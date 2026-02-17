@@ -34,6 +34,7 @@ export async function handleTranscriptAndCreateReplyText(
   transcript: string,
 ): Promise<string | null> {
   // Beispiel: einfache Echo-Logik
+  console.log('Handling transcript:', { transcript })
   const t = transcript.trim()
   if (!t) return null
 

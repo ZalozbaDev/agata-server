@@ -18,7 +18,6 @@ import {
   sendAudioToTwilio,
   clearTwilioPlayback,
 } from './helpers/twilio-socket'
-// import { schedulerService } from './services/scheduler'
 
 // Load environment variables
 dotenv.config()
@@ -68,11 +67,6 @@ const wss = new WebSocketServer({
 wss.on('connection', (twilioWs, req) => {
   console.log('Twilio WS connected:', req.socket.remoteAddress)
 
-  const VOSK_DEBUG =
-    process.env['VOSK_DEBUG'] === '1' ||
-    process.env['VOSK_DEBUG'] === 'true' ||
-    process.env['VOSK_DEBUG'] === 'yes'
-
   const VOSK_AUDIO_ENCODING = (process.env['VOSK_AUDIO_ENCODING'] ?? 'pcm16')
     .toLowerCase()
     .trim()
@@ -85,12 +79,6 @@ wss.on('connection', (twilioWs, req) => {
   const TWILIO_AUDIO_DIR =
     (process.env['TWILIO_AUDIO_DIR'] ?? './twilio-audio').trim() ||
     './twilio-audio'
-
-  // Default: only log Vosk output; do not send any reply audio back to Twilio.
-  const TWILIO_ENABLE_REPLY =
-    process.env['TWILIO_ENABLE_REPLY'] === '1' ||
-    process.env['TWILIO_ENABLE_REPLY'] === 'true' ||
-    process.env['TWILIO_ENABLE_REPLY'] === 'yes'
 
   // Your Vosk endpoint only supports 8000/64000; Twilio delivers µ-law 8k.
   // Default behavior: convert µ-law -> PCM16LE (still 8k) so ASR backends can decode it.
@@ -214,7 +202,6 @@ wss.on('connection', (twilioWs, req) => {
   let streamSid: string | null = null
   let lastFinalText = '' // simple de-dupe
   let mediaFrameCount = 0
-  let lastMediaLogAtMs = -1
   let twilioMsgCount = 0
   let voskOpen = false
   let syntheticTsMs = 0
@@ -222,7 +209,6 @@ wss.on('connection', (twilioWs, req) => {
   const MAX_PENDING_AUDIO_BYTES = 8000 * 5 // ~5 seconds at 8kHz 8-bit
   let lastAudioActivityLogFrame = 0
   let voskMsgCount = 0
-  let lastVoskDebugLogAt = 0
   let placeholderCount = 0
   let sentListenTrue = false
 
@@ -479,25 +465,9 @@ wss.on('connection', (twilioWs, req) => {
       (data?.listen === 'false' || data?.listen === false)
     ) {
       sentListenTrue = true
-      try {
-        if (VOSK_DEBUG) console.log('Sent Vosk listen:true')
-      } catch {}
     }
 
     const rawText = extractTranscript(data)
-
-    if (VOSK_DEBUG && !rawText) {
-      const now = Date.now()
-      if (now - lastVoskDebugLogAt >= 1000) {
-        lastVoskDebugLogAt = now
-        console.log('Vosk msg (no transcript):', {
-          msgCount: voskMsgCount,
-          keys: data && typeof data === 'object' ? Object.keys(data) : null,
-          preview: str.slice(0, 200),
-        })
-      }
-      return
-    }
 
     // --- Hier kannst du wie bei dir tokens/plainText normalisieren ---
     // const tokens = normalizeInputWords(data?.tokens ?? data?.result ?? data?.words);
@@ -517,23 +487,18 @@ wss.on('connection', (twilioWs, req) => {
     // Some proxies emit placeholders like "--  --" for silence/empty partials
     if (/^--\s*--$/.test(plainText) || plainText === '--') {
       placeholderCount++
-      if (VOSK_DEBUG && placeholderCount % 50 === 0) {
-        console.log('Vosk placeholder transcripts:', {
-          count: placeholderCount,
-          msgCount: voskMsgCount,
-        })
-      }
+
       return
     }
 
     // ✅ This is the recognized user speech
-    console.log('Vosk transcript:', plainText)
-
-    // Current goal: just log what Vosk recognized.
-    // Enable reply/TTS to Twilio explicitly via TWILIO_ENABLE_REPLY.
-    if (!TWILIO_ENABLE_REPLY) return
-
-    // if (shouldIgnoreTranscriptionText(plainText)) return;
+    console.log(
+      'Vosk transcript:',
+      plainText,
+      '(',
+      plainText === lastFinalText,
+      ')',
+    )
 
     // Optional DB Save (wie bei dir)
     // if (recordId) {
@@ -551,6 +516,7 @@ wss.on('connection', (twilioWs, req) => {
     // Du willst i.d.R. nur “finale” Ergebnisse beantworten.
     // Vosk sendet je nach Setup partial/final unterschiedlich.
     // Hier sehr simpel: wenn Text sich geändert hat, antworte.
+
     if (plainText === lastFinalText) return
     lastFinalText = plainText
 
@@ -677,27 +643,6 @@ wss.on('connection', (twilioWs, req) => {
           audioBuffer,
           typeof tsFromTwilio === 'number' ? tsFromTwilio : null,
         )
-      }
-
-      // Log roughly once per second (timestamp if available), otherwise every 50 frames
-      if (typeof tsFromTwilio === 'number') {
-        if (lastMediaLogAtMs < 0 || tsFromTwilio - lastMediaLogAtMs >= 1000) {
-          lastMediaLogAtMs = tsFromTwilio
-          console.log('Twilio media:', {
-            ts: tsFromTwilio,
-            bytes: audioBuffer.length,
-            frames: mediaFrameCount,
-            msgCount: twilioMsgCount,
-          })
-        }
-      } else if (mediaFrameCount % 50 === 0) {
-        console.log('Twilio media:', {
-          ts: null,
-          syntheticTsMs: effectiveTsMs,
-          bytes: audioBuffer.length,
-          frames: mediaFrameCount,
-          msgCount: twilioMsgCount,
-        })
       }
 
       if (voskOpen && voskWs.readyState === WebSocket.OPEN) {
