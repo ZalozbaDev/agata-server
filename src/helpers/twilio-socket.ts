@@ -1,3 +1,5 @@
+/// <reference path="../types/wav-decoder.d.ts" />
+
 import WebSocket from 'ws'
 import { decode as decodeWav } from 'wav-decoder'
 import { generateBamborakAudioFromText } from '../services/bamborakService'
