@@ -80,6 +80,8 @@ wss.on('connection', (twilioWs, req) => {
 
   let streamSid: string | null = null
   let lastFinalText = '' // simple de-dupe
+  let mediaFrameCount = 0
+  let lastMediaLogAtMs = -1
 
   voskWs.on('open', () => console.log('Connection to Vosk established 🚀'))
 
@@ -124,6 +126,18 @@ wss.on('connection', (twilioWs, req) => {
 
     const plainText = rawText.trim()
     if (!plainText) return
+
+    // Filter out whisper.cpp startup/banner/status noise (not user speech)
+    if (
+      plainText.startsWith('--') ||
+      /whisper\.cpp|ggml-model|ggml-model-bin|ggml/i.test(plainText)
+    ) {
+      console.log('Vosk/Whisper banner:', plainText)
+      return
+    }
+
+    // ✅ This is the recognized user speech
+    console.log('User said (ASR):', plainText)
 
     // if (shouldIgnoreTranscriptionText(plainText)) return;
 
@@ -180,15 +194,18 @@ wss.on('connection', (twilioWs, req) => {
 
     if (msg.event === 'start') {
       streamSid = msg.start?.streamSid ?? null
-      // console.log('Twilio start:', {
-      //   streamSid,
-      //   callSid: msg.start?.callSid,
-      //   tracks: msg.start?.tracks,
-      // })
+      console.log('Twilio start:', {
+        streamSid,
+        callSid: msg.start?.callSid,
+        tracks: msg.start?.tracks,
+        mediaFormat: msg.start?.mediaFormat,
+      })
       return
     }
 
     if (msg.event === 'media') {
+      mediaFrameCount++
+
       // 1) optional: timestamp -> dein bisheriges Format (13-stellig)
       const ts = msg.media?.timestamp
       if (typeof ts === 'number' && voskWs.readyState === WebSocket.OPEN) {
@@ -200,6 +217,19 @@ wss.on('connection', (twilioWs, req) => {
       if (!payload) return
 
       const audioBuffer = Buffer.from(payload, 'base64') // mulaw 8k raw
+
+      // Log roughly once per second (based on Twilio timestamp) to avoid spamming logs
+      if (typeof ts === 'number') {
+        if (lastMediaLogAtMs < 0 || ts - lastMediaLogAtMs >= 1000) {
+          lastMediaLogAtMs = ts
+          console.log('Twilio media:', {
+            ts,
+            bytes: audioBuffer.length,
+            frames: mediaFrameCount,
+          })
+        }
+      }
+
       if (voskWs.readyState === WebSocket.OPEN) {
         voskWs.send(audioBuffer)
       }
