@@ -8,6 +8,7 @@ export type BamborakSpeakerId = string | number
 export interface BamborakAudioFromTextParams {
   text: string
   speaker_id?: BamborakSpeakerId
+  format?: 'wav' | 'mp3'
 }
 
 export interface BamborakAudioFromTextResult {
@@ -27,7 +28,7 @@ export async function fetchBamborakSpeakers(): Promise<unknown> {
 export async function generateBamborakAudioFromText(
   params: BamborakAudioFromTextParams,
 ): Promise<BamborakAudioFromTextResult> {
-  const { text, speaker_id } = params
+  const { text, speaker_id, format } = params
 
   const config: AxiosRequestConfig = {
     method: 'post',
@@ -36,7 +37,7 @@ export async function generateBamborakAudioFromText(
     headers: {
       'Content-Type': 'application/json',
     },
-    data: { text, speaker_id },
+    data: { text, speaker_id, format },
     responseType: 'arraybuffer',
   }
 
