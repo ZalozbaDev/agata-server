@@ -44,79 +44,79 @@ export async function handleTranscriptAndCreateReplyText(
 // === Platzhalter: TTS -> mulaw 8k base64 ===
 // Du musst hier deinen TTS Service einbauen.
 // Twilio braucht: audio/x-mulaw, 8000 Hz, base64 (ohne WAV header)
-function mixDownToMono(channelData: Float32Array[]): Float32Array {
-  if (channelData.length === 0) return new Float32Array(0)
-  if (channelData.length === 1) return channelData[0]!
+// function mixDownToMono(channelData: Float32Array[]): Float32Array {
+//   if (channelData.length === 0) return new Float32Array(0)
+//   if (channelData.length === 1) return channelData[0]!
 
-  const minLen = Math.min(...channelData.map(ch => ch.length))
-  const out = new Float32Array(minLen)
-  for (let i = 0; i < minLen; i++) {
-    let sum = 0
-    for (const ch of channelData) sum += ch[i] ?? 0
-    out[i] = sum / channelData.length
-  }
-  return out
-}
+//   const minLen = Math.min(...channelData.map(ch => ch.length))
+//   const out = new Float32Array(minLen)
+//   for (let i = 0; i < minLen; i++) {
+//     let sum = 0
+//     for (const ch of channelData) sum += ch[i] ?? 0
+//     out[i] = sum / channelData.length
+//   }
+//   return out
+// }
 
-function resampleLinear(
-  input: Float32Array,
-  inSampleRate: number,
-  outSampleRate: number,
-): Float32Array {
-  if (inSampleRate === outSampleRate) return input
-  if (input.length === 0) return input
+// function resampleLinear(
+//   input: Float32Array,
+//   inSampleRate: number,
+//   outSampleRate: number,
+// ): Float32Array {
+//   if (inSampleRate === outSampleRate) return input
+//   if (input.length === 0) return input
 
-  const ratio = outSampleRate / inSampleRate
-  const outLen = Math.max(1, Math.round(input.length * ratio))
-  const out = new Float32Array(outLen)
+//   const ratio = outSampleRate / inSampleRate
+//   const outLen = Math.max(1, Math.round(input.length * ratio))
+//   const out = new Float32Array(outLen)
 
-  for (let i = 0; i < outLen; i++) {
-    const pos = i / ratio
-    const idx = Math.floor(pos)
-    const frac = pos - idx
-    const s0 = input[Math.min(idx, input.length - 1)] ?? 0
-    const s1 = input[Math.min(idx + 1, input.length - 1)] ?? 0
-    out[i] = s0 + (s1 - s0) * frac
-  }
+//   for (let i = 0; i < outLen; i++) {
+//     const pos = i / ratio
+//     const idx = Math.floor(pos)
+//     const frac = pos - idx
+//     const s0 = input[Math.min(idx, input.length - 1)] ?? 0
+//     const s1 = input[Math.min(idx + 1, input.length - 1)] ?? 0
+//     out[i] = s0 + (s1 - s0) * frac
+//   }
 
-  return out
-}
+//   return out
+// }
 
-function linearPcm16ToMuLawByte(sample: number): number {
-  // G.711 µ-law (8-bit)
-  const BIAS = 0x84
-  const CLIP = 32635
+// function linearPcm16ToMuLawByte(sample: number): number {
+//   // G.711 µ-law (8-bit)
+//   const BIAS = 0x84
+//   const CLIP = 32635
 
-  let pcm = sample
-  let sign = 0
-  if (pcm < 0) {
-    sign = 0x80
-    pcm = -pcm
-  }
+//   let pcm = sample
+//   let sign = 0
+//   if (pcm < 0) {
+//     sign = 0x80
+//     pcm = -pcm
+//   }
 
-  pcm = Math.min(pcm, CLIP)
-  pcm += BIAS
+//   pcm = Math.min(pcm, CLIP)
+//   pcm += BIAS
 
-  let exponent = 7
-  for (let expMask = 0x4000; (pcm & expMask) === 0 && exponent > 0; ) {
-    exponent--
-    expMask >>= 1
-  }
+//   let exponent = 7
+//   for (let expMask = 0x4000; (pcm & expMask) === 0 && exponent > 0; ) {
+//     exponent--
+//     expMask >>= 1
+//   }
 
-  const mantissa = (pcm >> (exponent + 3)) & 0x0f
-  const muLaw = ~(sign | (exponent << 4) | mantissa)
-  return muLaw & 0xff
-}
+//   const mantissa = (pcm >> (exponent + 3)) & 0x0f
+//   const muLaw = ~(sign | (exponent << 4) | mantissa)
+//   return muLaw & 0xff
+// }
 
-function floatPcmToMuLawBuffer(samples: Float32Array): Buffer {
-  const out = Buffer.alloc(samples.length)
-  for (let i = 0; i < samples.length; i++) {
-    const s = Math.max(-1, Math.min(1, samples[i] ?? 0))
-    const pcm16 = s < 0 ? Math.round(s * 32768) : Math.round(s * 32767)
-    out[i] = linearPcm16ToMuLawByte(pcm16)
-  }
-  return out
-}
+// function floatPcmToMuLawBuffer(samples: Float32Array): Buffer {
+//   const out = Buffer.alloc(samples.length)
+//   for (let i = 0; i < samples.length; i++) {
+//     const s = Math.max(-1, Math.min(1, samples[i] ?? 0))
+//     const pcm16 = s < 0 ? Math.round(s * 32768) : Math.round(s * 32767)
+//     out[i] = linearPcm16ToMuLawByte(pcm16)
+//   }
+//   return out
+// }
 
 export async function ttsToMulaw8kBase64(text: string): Promise<string> {
   const trimmed = text.trim()
@@ -129,9 +129,9 @@ export async function ttsToMulaw8kBase64(text: string): Promise<string> {
   })
 
   return ttsResult.audioBase64
-  const audioFileBuffer = Buffer.from(ttsResult.audioBase64, 'base64')
+  // const audioFileBuffer = Buffer.from(ttsResult.audioBase64, 'base64')
 
-  let audioData
+  // let audioData
   // try {
   //   audioData = await decodeWav(audioFileBuffer)
   // } catch (e) {
