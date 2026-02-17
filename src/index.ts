@@ -78,10 +78,10 @@ wss.on('connection', (twilioWs, req) => {
     process.env['VOSK_TARGET_SAMPLE_RATE'] ?? '16000',
   )
 
-  // Common whisper.cpp websocket servers expect 16kHz PCM16LE. Your Twilio stream is 8kHz µ-law.
-  // Default behavior: convert µ-law 8k -> PCM16LE 16k unless overridden.
+  // Your Vosk/Whisper endpoint looks like a custom proxy (it expects 13-digit timestamp frames).
+  // Default behavior: forward raw Twilio µ-law 8k chunks.
+  // If your upstream expects PCM16LE (common for some whisper.cpp websocket servers), opt-in via env.
   const shouldConvertMulawToPcm16 =
-    VOSK_AUDIO_ENCODING === '' ||
     VOSK_AUDIO_ENCODING === 'pcm16' ||
     VOSK_AUDIO_ENCODING === 'pcm16le' ||
     VOSK_AUDIO_ENCODING === 'pcm16le16k'
@@ -200,6 +200,15 @@ wss.on('connection', (twilioWs, req) => {
   let voskMsgCount = 0
   let lastVoskDebugLogAt = 0
   let placeholderCount = 0
+
+  console.log('Vosk audio forward mode:', {
+    encoding: shouldConvertMulawToPcm16 ? 'pcm16le' : 'mulaw8k',
+    targetSampleRate: shouldConvertMulawToPcm16
+      ? Number.isFinite(VOSK_TARGET_SAMPLE_RATE) && VOSK_TARGET_SAMPLE_RATE > 0
+        ? VOSK_TARGET_SAMPLE_RATE
+        : 16000
+      : 8000,
+  })
 
   voskWs.on('open', () => {
     voskOpen = true
@@ -333,7 +342,7 @@ wss.on('connection', (twilioWs, req) => {
   // Twilio -> VOSK (Audio forward)
   twilioWs.on('message', (data, isBinary) => {
     twilioMsgCount++
-
+    console.log('Received message from Twilio:')
     if (isBinary) {
       console.warn('Twilio sent binary frame:', {
         bytes: (data as Buffer).length,
