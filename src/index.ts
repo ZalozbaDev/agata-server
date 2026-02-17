@@ -128,7 +128,7 @@ wss.on('connection', (twilioWs, req) => {
 
   function muLawToLinearPcm16Sample(muLawByte: number): number {
     // ITU-T G.711 µ-law decode
-    const mu = (~muLawByte) & 0xff
+    const mu = ~muLawByte & 0xff
     const sign = mu & 0x80
     let exponent = (mu >> 4) & 0x07
     let mantissa = mu & 0x0f
@@ -442,7 +442,8 @@ wss.on('connection', (twilioWs, req) => {
           ? resamplePcm16LELinear(
               decodeMulawToPcm16LE(audioBuffer),
               8000,
-              Number.isFinite(VOSK_TARGET_SAMPLE_RATE) && VOSK_TARGET_SAMPLE_RATE > 0
+              Number.isFinite(VOSK_TARGET_SAMPLE_RATE) &&
+                VOSK_TARGET_SAMPLE_RATE > 0
                 ? VOSK_TARGET_SAMPLE_RATE
                 : 16000,
             )
@@ -454,7 +455,8 @@ wss.on('connection', (twilioWs, req) => {
           ? resamplePcm16LELinear(
               decodeMulawToPcm16LE(audioBuffer),
               8000,
-              Number.isFinite(VOSK_TARGET_SAMPLE_RATE) && VOSK_TARGET_SAMPLE_RATE > 0
+              Number.isFinite(VOSK_TARGET_SAMPLE_RATE) &&
+                VOSK_TARGET_SAMPLE_RATE > 0
                 ? VOSK_TARGET_SAMPLE_RATE
                 : 16000,
             )
