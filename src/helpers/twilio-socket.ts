@@ -1,5 +1,5 @@
 import WebSocket from 'ws'
-import { decode as decodeWav } from 'wav-decoder'
+// import { decode as decodeWav } from 'wav-decoder'
 import { generateBamborakAudioFromText } from '../services/bamborakService'
 
 export type TwilioMsg =
@@ -128,23 +128,24 @@ export async function ttsToMulaw8kBase64(text: string): Promise<string> {
     ...(speaker_id ? { speaker_id } : {}),
   })
 
+  return ttsResult.audioBase64
   const audioFileBuffer = Buffer.from(ttsResult.audioBase64, 'base64')
 
   let audioData
-  try {
-    audioData = await decodeWav(audioFileBuffer)
-  } catch (e) {
-    throw new Error(
-      `Bamborak TTS returned non-WAV audio; cannot convert to mulaw 8k. (${String(
-        e,
-      )})`,
-    )
-  }
+  // try {
+  //   audioData = await decodeWav(audioFileBuffer)
+  // } catch (e) {
+  //   throw new Error(
+  //     `Bamborak TTS returned non-WAV audio; cannot convert to mulaw 8k. (${String(
+  //       e,
+  //     )})`,
+  //   )
+  // }
 
-  const mono = mixDownToMono(audioData.channelData)
-  const resampled = resampleLinear(mono, audioData.sampleRate, 8000)
-  const muLaw = floatPcmToMuLawBuffer(resampled)
-  return muLaw.toString('base64')
+  // const mono = mixDownToMono(audioData.channelData)
+  // const resampled = resampleLinear(mono, audioData.sampleRate, 8000)
+  // const muLaw = floatPcmToMuLawBuffer(resampled)
+  // return muLaw.toString('base64')
 }
 
 export function clearTwilioPlayback(ws: WebSocket, streamSid: string) {
