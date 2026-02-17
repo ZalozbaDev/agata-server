@@ -66,6 +66,46 @@ const wss = new WebSocketServer({
 wss.on('connection', (twilioWs, req) => {
   console.log('Twilio WS connected:', req.socket.remoteAddress)
 
+  function extractTranscript(data: any): string {
+    const candidates: Array<unknown> = [
+      data?.text,
+      data?.partial,
+      data?.result?.text,
+      data?.alternatives?.[0]?.transcript,
+    ]
+
+    for (const c of candidates) {
+      if (typeof c === 'string' && c.trim()) return c
+    }
+
+    // Common shapes: words/result arrays
+    if (Array.isArray(data?.words)) {
+      const t = data.words
+        .map((w: any) => w?.word ?? w?.text)
+        .filter(Boolean)
+        .join(' ')
+      if (t.trim()) return t
+    }
+
+    if (Array.isArray(data?.result)) {
+      const t = data.result
+        .map((w: any) => w?.word ?? w?.text)
+        .filter(Boolean)
+        .join(' ')
+      if (t.trim()) return t
+    }
+
+    if (Array.isArray(data?.segments)) {
+      const t = data.segments
+        .map((s: any) => s?.text)
+        .filter(Boolean)
+        .join(' ')
+      if (t.trim()) return t
+    }
+
+    return ''
+  }
+
   // Client-WS zu VOSK
   const voskUrl = process.env['VOSK_SERVER_URL'] + '/vosk'
 
@@ -87,6 +127,7 @@ wss.on('connection', (twilioWs, req) => {
   let syntheticTsMs = 0
   const pendingAudio: Array<{ tsMs: number; audio: Buffer }> = []
   const MAX_PENDING_AUDIO_BYTES = 8000 * 5 // ~5 seconds at 8kHz 8-bit
+  let lastAudioActivityLogFrame = 0
 
   voskWs.on('open', () => {
     voskOpen = true
@@ -127,16 +168,7 @@ wss.on('connection', (twilioWs, req) => {
       return
     }
 
-    const rawText = typeof data?.text === 'string' ? data.text : ''
-
-    // deine Filter aus dem Beispiel
-    if (
-      rawText === '-- ***/whisper/ggml-model.q8_0.bin --' ||
-      rawText === '-- **/whisper/ggml-model.q8_0.bin --' ||
-      rawText === '-- */whisper/ggml-model.q8_0.bin --'
-    ) {
-      return
-    }
+    const rawText = extractTranscript(data)
 
     // --- Hier kannst du wie bei dir tokens/plainText normalisieren ---
     // const tokens = normalizeInputWords(data?.tokens ?? data?.result ?? data?.words);
@@ -147,12 +179,14 @@ wss.on('connection', (twilioWs, req) => {
     const plainText = rawText.trim()
     if (!plainText) return
 
-    // Filter out whisper.cpp startup/banner/status noise (not user speech)
-    if (
-      plainText.startsWith('--') ||
-      /whisper\.cpp|ggml-model|ggml-model-bin|ggml/i.test(plainText)
-    ) {
+    // Ignore known whisper.cpp startup/banner/status noise (not user speech)
+    if (/whisper\.cpp|ggml-model|ggml-model-bin|ggml/i.test(plainText)) {
       console.log('Vosk/Whisper banner:', plainText)
+      return
+    }
+
+    // Some proxies emit placeholders like "--  --" for silence/empty partials
+    if (/^--\s*--$/.test(plainText) || plainText === '--') {
       return
     }
 
@@ -261,6 +295,22 @@ wss.on('connection', (twilioWs, req) => {
       }
 
       const audioBuffer = Buffer.from(payload, 'base64') // mulaw 8k raw
+
+      // Basic audio activity signal: Twilio µ-law silence is typically 0xFF.
+      // Log about once every 1000ms worth of frames (50 frames * 20ms).
+      if (mediaFrameCount - lastAudioActivityLogFrame >= 50) {
+        lastAudioActivityLogFrame = mediaFrameCount
+        let nonSilence = 0
+        for (let i = 0; i < audioBuffer.length; i++) {
+          if (audioBuffer[i] !== 0xff) nonSilence++
+        }
+        const nonSilenceRatio = nonSilence / Math.max(1, audioBuffer.length)
+        console.log('Twilio audio activity:', {
+          frames: mediaFrameCount,
+          bytes: audioBuffer.length,
+          nonSilenceRatio: Number(nonSilenceRatio.toFixed(3)),
+        })
+      }
 
       const chunkMs = Math.max(1, Math.round(audioBuffer.length / 8)) // 8000 bytes/sec => 8 bytes/ms
       const effectiveTsMs =
