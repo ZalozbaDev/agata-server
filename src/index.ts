@@ -80,14 +80,8 @@ wss.on('connection', (twilioWs, req) => {
     process.env['VOSK_TARGET_SAMPLE_RATE'] ?? '8000',
   )
 
-  const TWILIO_SAVE_AUDIO =
-    process.env['TWILIO_SAVE_AUDIO'] === '1' ||
-    process.env['TWILIO_SAVE_AUDIO'] === 'true' ||
-    process.env['TWILIO_SAVE_AUDIO'] === 'yes'
-  const TWILIO_SAVE_AUDIO_PCM16 =
-    process.env['TWILIO_SAVE_AUDIO_PCM16'] === '1' ||
-    process.env['TWILIO_SAVE_AUDIO_PCM16'] === 'true' ||
-    process.env['TWILIO_SAVE_AUDIO_PCM16'] === 'yes'
+  const TWILIO_SAVE_AUDIO = true
+  const TWILIO_SAVE_AUDIO_PCM16 = true
   const TWILIO_AUDIO_DIR =
     (process.env['TWILIO_AUDIO_DIR'] ?? './twilio-audio').trim() ||
     './twilio-audio'
@@ -235,8 +229,11 @@ wss.on('connection', (twilioWs, req) => {
   let audioOutDir: string | null = null
   let mulawWriteStream: fs.WriteStream | null = null
   let pcm16WriteStream: fs.WriteStream | null = null
+  let twilioPacketsWriteStream: fs.WriteStream | null = null
+  let twilioPacketsIndexWriteStream: fs.WriteStream | null = null
   let voskPacketsWriteStream: fs.WriteStream | null = null
   let voskPacketsIndexWriteStream: fs.WriteStream | null = null
+  let twilioPacketSeq = 0
   let packetSeq = 0
 
   const ensureAudioDir = (sid: string | null) => {
@@ -257,6 +254,42 @@ wss.on('connection', (twilioWs, req) => {
     mulawWriteStream = fs.createWriteStream(
       path.join(audioOutDir, 'incoming.mulaw'),
     )
+
+    // Packetized capture of raw Twilio media frames (boundary-preserving)
+    twilioPacketSeq = 0
+    twilioPacketsWriteStream = fs.createWriteStream(
+      path.join(audioOutDir, 'twilio_packets.bin'),
+    )
+    twilioPacketsIndexWriteStream = fs.createWriteStream(
+      path.join(audioOutDir, 'twilio_packets.jsonl'),
+    )
+    try {
+      fs.writeFileSync(
+        path.join(audioOutDir, 'twilio_packets_meta.json'),
+        JSON.stringify(
+          {
+            createdAt: new Date().toISOString(),
+            streamSid: sid,
+            format: {
+              binary: 'twilio_packets.bin',
+              packetHeader: {
+                timestampMs: 'uint64le',
+                audioBytes: 'uint32le',
+              },
+              packetBody: 'raw Twilio media payload bytes (mulaw8k)',
+              index: 'twilio_packets.jsonl (one JSON object per packet)',
+            },
+            twilio: {
+              encoding: 'mulaw',
+              sampleRate: 8000,
+              channels: 1,
+            },
+          },
+          null,
+          2,
+        ),
+      )
+    } catch {}
 
     if (shouldConvertMulawToPcm16 || TWILIO_SAVE_AUDIO_PCM16) {
       pcm16WriteStream = fs.createWriteStream(
@@ -310,8 +343,38 @@ wss.on('connection', (twilioWs, req) => {
       mulaw: true,
       pcm16le: Boolean(pcm16WriteStream),
       pcm16leSampleRate: targetSampleRate,
+      twilioPackets: true,
       voskPackets: true,
     })
+  }
+
+  const writeTwilioPacket = (
+    tsMs: number,
+    audio: Buffer,
+    tsFromTwilio: number | null,
+  ) => {
+    if (!TWILIO_SAVE_AUDIO) return
+    if (!twilioPacketsWriteStream || !twilioPacketsIndexWriteStream) return
+
+    twilioPacketSeq++
+    const ts = Math.max(0, Math.floor(tsMs))
+    const header = Buffer.alloc(12)
+    header.writeBigUInt64LE(BigInt(ts), 0)
+    header.writeUInt32LE(audio.length, 8)
+    try {
+      twilioPacketsWriteStream.write(header)
+      twilioPacketsWriteStream.write(audio)
+      twilioPacketsIndexWriteStream.write(
+        JSON.stringify({
+          i: twilioPacketSeq,
+          tsMs: ts,
+          ts13: to13DigitMsString(ts),
+          bytes: audio.length,
+          tsFromTwilio,
+          syntheticTs: typeof tsFromTwilio !== 'number',
+        }) + '\n',
+      )
+    } catch {}
   }
 
   const writeVoskPacket = (tsMs: number, audio: Buffer) => {
@@ -345,6 +408,12 @@ wss.on('connection', (twilioWs, req) => {
       pcm16WriteStream?.end()
     } catch {}
     try {
+      twilioPacketsWriteStream?.end()
+    } catch {}
+    try {
+      twilioPacketsIndexWriteStream?.end()
+    } catch {}
+    try {
       voskPacketsWriteStream?.end()
     } catch {}
     try {
@@ -352,6 +421,8 @@ wss.on('connection', (twilioWs, req) => {
     } catch {}
     mulawWriteStream = null
     pcm16WriteStream = null
+    twilioPacketsWriteStream = null
+    twilioPacketsIndexWriteStream = null
     voskPacketsWriteStream = null
     voskPacketsIndexWriteStream = null
     audioOutDir = null
@@ -376,17 +447,6 @@ wss.on('connection', (twilioWs, req) => {
       sentListenTrue = true
     } catch (e) {
       console.warn('Failed to send Vosk config:', e)
-    }
-
-    // flush any audio we received before Vosk was ready
-    while (pendingAudio.length) {
-      const chunk = pendingAudio.shift()
-      if (!chunk) break
-      try {
-        voskWs.send(chunk.audio)
-      } catch {
-        break
-      }
     }
   })
 
@@ -607,6 +667,16 @@ wss.on('connection', (twilioWs, req) => {
         typeof tsFromTwilio === 'number' ? tsFromTwilio : syntheticTsMs
       if (typeof tsFromTwilio !== 'number') {
         syntheticTsMs += chunkMs
+      }
+
+      // Save raw Twilio packets exactly as they come in (boundary-preserving)
+      if (TWILIO_SAVE_AUDIO) {
+        ensureAudioDir(streamSid)
+        writeTwilioPacket(
+          effectiveTsMs,
+          audioBuffer,
+          typeof tsFromTwilio === 'number' ? tsFromTwilio : null,
+        )
       }
 
       // Log roughly once per second (timestamp if available), otherwise every 50 frames
