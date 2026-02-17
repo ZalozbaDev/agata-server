@@ -71,20 +71,26 @@ wss.on('connection', (twilioWs, req) => {
     process.env['VOSK_DEBUG'] === 'true' ||
     process.env['VOSK_DEBUG'] === 'yes'
 
-  const VOSK_AUDIO_ENCODING = (process.env['VOSK_AUDIO_ENCODING'] ?? '')
+  const VOSK_AUDIO_ENCODING = (process.env['VOSK_AUDIO_ENCODING'] ?? 'pcm16')
     .toLowerCase()
     .trim()
   const VOSK_TARGET_SAMPLE_RATE = Number(
     process.env['VOSK_TARGET_SAMPLE_RATE'] ?? '8000',
   )
 
-  // Your Vosk/Whisper endpoint looks like a custom proxy (it expects 13-digit timestamp frames).
-  // Default behavior: forward raw Twilio µ-law 8k chunks.
-  // If your upstream expects PCM16LE (common for some whisper.cpp websocket servers), opt-in via env.
+  // Default: only log Vosk output; do not send any reply audio back to Twilio.
+  const TWILIO_ENABLE_REPLY =
+    process.env['TWILIO_ENABLE_REPLY'] === '1' ||
+    process.env['TWILIO_ENABLE_REPLY'] === 'true' ||
+    process.env['TWILIO_ENABLE_REPLY'] === 'yes'
+
+  // Your Vosk endpoint only supports 8000/64000; Twilio delivers µ-law 8k.
+  // Default behavior: convert µ-law -> PCM16LE (still 8k) so ASR backends can decode it.
+  // Set VOSK_AUDIO_ENCODING=mulaw8k to forward raw Twilio bytes.
   const shouldConvertMulawToPcm16 =
-    VOSK_AUDIO_ENCODING === 'pcm16' ||
-    VOSK_AUDIO_ENCODING === 'pcm16le' ||
-    VOSK_AUDIO_ENCODING === 'pcm16le16k'
+    VOSK_AUDIO_ENCODING !== 'mulaw8k' &&
+    VOSK_AUDIO_ENCODING !== 'mulaw' &&
+    VOSK_AUDIO_ENCODING !== 'ulaw'
 
   function extractTranscript(data: any): string {
     const candidates: Array<unknown> = [
@@ -201,6 +207,7 @@ wss.on('connection', (twilioWs, req) => {
   let voskMsgCount = 0
   let lastVoskDebugLogAt = 0
   let placeholderCount = 0
+  let sentListenTrue = false
 
   console.log('Vosk audio forward mode:', {
     encoding: shouldConvertMulawToPcm16 ? 'pcm16le' : 'mulaw8k',
@@ -264,6 +271,18 @@ wss.on('connection', (twilioWs, req) => {
       return
     }
 
+    // Some proxies require an explicit "listen": true to start decoding.
+    if (
+      !sentListenTrue &&
+      (data?.listen === 'false' || data?.listen === false)
+    ) {
+      sentListenTrue = true
+      try {
+        voskWs.send(JSON.stringify({ listen: true }))
+        if (VOSK_DEBUG) console.log('Sent Vosk listen:true')
+      } catch {}
+    }
+
     const rawText = extractTranscript(data)
 
     if (VOSK_DEBUG && !rawText) {
@@ -307,7 +326,11 @@ wss.on('connection', (twilioWs, req) => {
     }
 
     // ✅ This is the recognized user speech
-    console.log('User said (ASR):', plainText)
+    console.log('Vosk transcript:', plainText)
+
+    // Current goal: just log what Vosk recognized.
+    // Enable reply/TTS to Twilio explicitly via TWILIO_ENABLE_REPLY.
+    if (!TWILIO_ENABLE_REPLY) return
 
     // if (shouldIgnoreTranscriptionText(plainText)) return;
 
