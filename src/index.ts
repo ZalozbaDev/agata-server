@@ -66,6 +66,26 @@ const wss = new WebSocketServer({
 wss.on('connection', (twilioWs, req) => {
   console.log('Twilio WS connected:', req.socket.remoteAddress)
 
+  const VOSK_DEBUG =
+    process.env['VOSK_DEBUG'] === '1' ||
+    process.env['VOSK_DEBUG'] === 'true' ||
+    process.env['VOSK_DEBUG'] === 'yes'
+
+  const VOSK_AUDIO_ENCODING = (process.env['VOSK_AUDIO_ENCODING'] ?? '')
+    .toLowerCase()
+    .trim()
+  const VOSK_TARGET_SAMPLE_RATE = Number(
+    process.env['VOSK_TARGET_SAMPLE_RATE'] ?? '16000',
+  )
+
+  // Common whisper.cpp websocket servers expect 16kHz PCM16LE. Your Twilio stream is 8kHz µ-law.
+  // Default behavior: convert µ-law 8k -> PCM16LE 16k unless overridden.
+  const shouldConvertMulawToPcm16 =
+    VOSK_AUDIO_ENCODING === '' ||
+    VOSK_AUDIO_ENCODING === 'pcm16' ||
+    VOSK_AUDIO_ENCODING === 'pcm16le' ||
+    VOSK_AUDIO_ENCODING === 'pcm16le16k'
+
   function extractTranscript(data: any): string {
     const candidates: Array<unknown> = [
       data?.text,
@@ -106,6 +126,55 @@ wss.on('connection', (twilioWs, req) => {
     return ''
   }
 
+  function muLawToLinearPcm16Sample(muLawByte: number): number {
+    // ITU-T G.711 µ-law decode
+    const mu = (~muLawByte) & 0xff
+    const sign = mu & 0x80
+    let exponent = (mu >> 4) & 0x07
+    let mantissa = mu & 0x0f
+    let sample = ((mantissa << 3) + 0x84) << exponent
+    sample -= 0x84
+    return sign ? -sample : sample
+  }
+
+  function decodeMulawToPcm16LE(mulaw: Buffer): Buffer {
+    const out = Buffer.alloc(mulaw.length * 2)
+    for (let i = 0; i < mulaw.length; i++) {
+      const s = muLawToLinearPcm16Sample(mulaw[i]!)
+      out.writeInt16LE(s, i * 2)
+    }
+    return out
+  }
+
+  function resamplePcm16LELinear(
+    pcm16le: Buffer,
+    inSampleRate: number,
+    outSampleRate: number,
+  ): Buffer {
+    if (inSampleRate === outSampleRate) return pcm16le
+    const inSamples = pcm16le.length / 2
+    if (!Number.isFinite(inSamples) || inSamples <= 1) return pcm16le
+
+    const ratio = outSampleRate / inSampleRate
+    const outSamples = Math.max(1, Math.round(inSamples * ratio))
+    const out = Buffer.alloc(outSamples * 2)
+
+    const readSample = (idx: number) =>
+      pcm16le.readInt16LE(Math.max(0, Math.min(inSamples - 1, idx)) * 2)
+
+    for (let i = 0; i < outSamples; i++) {
+      const pos = i / ratio
+      const idx = Math.floor(pos)
+      const frac = pos - idx
+      const s0 = readSample(idx)
+      const s1 = readSample(idx + 1)
+      const v = Math.round(s0 + (s1 - s0) * frac)
+      out.writeInt16LE(Math.max(-32768, Math.min(32767, v)), i * 2)
+    }
+
+    return out
+  }
+
   // Client-WS zu VOSK
   const voskUrl = process.env['VOSK_SERVER_URL'] + '/vosk'
 
@@ -128,6 +197,9 @@ wss.on('connection', (twilioWs, req) => {
   const pendingAudio: Array<{ tsMs: number; audio: Buffer }> = []
   const MAX_PENDING_AUDIO_BYTES = 8000 * 5 // ~5 seconds at 8kHz 8-bit
   let lastAudioActivityLogFrame = 0
+  let voskMsgCount = 0
+  let lastVoskDebugLogAt = 0
+  let placeholderCount = 0
 
   voskWs.on('open', () => {
     voskOpen = true
@@ -155,6 +227,7 @@ wss.on('connection', (twilioWs, req) => {
 
   // VOSK -> zurück an Twilio WS (und optional speichern / reply generieren)
   voskWs.on('message', async eventData => {
+    voskMsgCount++
     // 1) Wenn du willst, kannst du Vosk-Messages 1:1 an einen Client weiterreichen.
     // Hier schicken wir sie NICHT blind an Twilio (Twilio versteht nur Twilio-JSON Events).
     // Stattdessen: parse + business logic.
@@ -169,6 +242,19 @@ wss.on('connection', (twilioWs, req) => {
     }
 
     const rawText = extractTranscript(data)
+
+    if (VOSK_DEBUG && !rawText) {
+      const now = Date.now()
+      if (now - lastVoskDebugLogAt >= 1000) {
+        lastVoskDebugLogAt = now
+        console.log('Vosk msg (no transcript):', {
+          msgCount: voskMsgCount,
+          keys: data && typeof data === 'object' ? Object.keys(data) : null,
+          preview: str.slice(0, 200),
+        })
+      }
+      return
+    }
 
     // --- Hier kannst du wie bei dir tokens/plainText normalisieren ---
     // const tokens = normalizeInputWords(data?.tokens ?? data?.result ?? data?.words);
@@ -187,6 +273,13 @@ wss.on('connection', (twilioWs, req) => {
 
     // Some proxies emit placeholders like "--  --" for silence/empty partials
     if (/^--\s*--$/.test(plainText) || plainText === '--') {
+      placeholderCount++
+      if (VOSK_DEBUG && placeholderCount % 50 === 0) {
+        console.log('Vosk placeholder transcripts:', {
+          count: placeholderCount,
+          msgCount: voskMsgCount,
+        })
+      }
       return
     }
 
@@ -222,12 +315,15 @@ wss.on('connection', (twilioWs, req) => {
     const replyText = await handleTranscriptAndCreateReplyText(plainText)
     if (!replyText) return
 
+    console.log('Reply text:', replyText)
+
     // Barge-in freundlich: laufende Ausgabe stoppen, bevor wir neue senden
     clearTwilioPlayback(twilioWs, streamSid)
 
     try {
       const b64 = await ttsToMulaw8kBase64(replyText)
       sendAudioToTwilio(twilioWs, streamSid, b64)
+      console.log('Sent TTS audio back to Twilio')
     } catch (e) {
       console.error('TTS failed:', e)
       // fallback: nichts senden
@@ -342,10 +438,29 @@ wss.on('connection', (twilioWs, req) => {
 
       if (voskOpen && voskWs.readyState === WebSocket.OPEN) {
         voskWs.send(to13DigitMsString(effectiveTsMs))
-        voskWs.send(audioBuffer)
+        const outAudio = shouldConvertMulawToPcm16
+          ? resamplePcm16LELinear(
+              decodeMulawToPcm16LE(audioBuffer),
+              8000,
+              Number.isFinite(VOSK_TARGET_SAMPLE_RATE) && VOSK_TARGET_SAMPLE_RATE > 0
+                ? VOSK_TARGET_SAMPLE_RATE
+                : 16000,
+            )
+          : audioBuffer
+        voskWs.send(outAudio)
       } else {
         // buffer a bit so we don't drop the initial utterance
-        pendingAudio.push({ tsMs: effectiveTsMs, audio: audioBuffer })
+        const outAudio = shouldConvertMulawToPcm16
+          ? resamplePcm16LELinear(
+              decodeMulawToPcm16LE(audioBuffer),
+              8000,
+              Number.isFinite(VOSK_TARGET_SAMPLE_RATE) && VOSK_TARGET_SAMPLE_RATE > 0
+                ? VOSK_TARGET_SAMPLE_RATE
+                : 16000,
+            )
+          : audioBuffer
+
+        pendingAudio.push({ tsMs: effectiveTsMs, audio: outAudio })
         let total = 0
         for (let i = pendingAudio.length - 1; i >= 0; i--) {
           total += pendingAudio[i]!.audio.length
