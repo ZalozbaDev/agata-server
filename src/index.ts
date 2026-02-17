@@ -8,6 +8,8 @@ import routes from './routes'
 import OpenAI from 'openai'
 import http from 'http'
 import { WebSocket, WebSocketServer } from 'ws'
+import fs from 'fs'
+import path from 'path'
 import {
   handleTranscriptAndCreateReplyText,
   ttsToMulaw8kBase64,
@@ -78,6 +80,18 @@ wss.on('connection', (twilioWs, req) => {
     process.env['VOSK_TARGET_SAMPLE_RATE'] ?? '8000',
   )
 
+  const TWILIO_SAVE_AUDIO =
+    process.env['TWILIO_SAVE_AUDIO'] === '1' ||
+    process.env['TWILIO_SAVE_AUDIO'] === 'true' ||
+    process.env['TWILIO_SAVE_AUDIO'] === 'yes'
+  const TWILIO_SAVE_AUDIO_PCM16 =
+    process.env['TWILIO_SAVE_AUDIO_PCM16'] === '1' ||
+    process.env['TWILIO_SAVE_AUDIO_PCM16'] === 'true' ||
+    process.env['TWILIO_SAVE_AUDIO_PCM16'] === 'yes'
+  const TWILIO_AUDIO_DIR =
+    (process.env['TWILIO_AUDIO_DIR'] ?? './twilio-audio').trim() ||
+    './twilio-audio'
+
   // Default: only log Vosk output; do not send any reply audio back to Twilio.
   const TWILIO_ENABLE_REPLY =
     process.env['TWILIO_ENABLE_REPLY'] === '1' ||
@@ -91,6 +105,15 @@ wss.on('connection', (twilioWs, req) => {
     VOSK_AUDIO_ENCODING !== 'mulaw8k' &&
     VOSK_AUDIO_ENCODING !== 'mulaw' &&
     VOSK_AUDIO_ENCODING !== 'ulaw'
+
+  const normalizeVoskSampleRate = (sr: number): 8000 | 64000 => {
+    if (Number.isFinite(sr) && sr === 64000) return 64000
+    return 8000
+  }
+
+  const targetSampleRate: 8000 | 64000 = shouldConvertMulawToPcm16
+    ? normalizeVoskSampleRate(VOSK_TARGET_SAMPLE_RATE)
+    : 8000
 
   function extractTranscript(data: any): string {
     const candidates: Array<unknown> = [
@@ -209,13 +232,58 @@ wss.on('connection', (twilioWs, req) => {
   let placeholderCount = 0
   let sentListenTrue = false
 
+  let audioOutDir: string | null = null
+  let mulawWriteStream: fs.WriteStream | null = null
+  let pcm16WriteStream: fs.WriteStream | null = null
+
+  const ensureAudioDir = (sid: string | null) => {
+    if (!TWILIO_SAVE_AUDIO) return
+    if (audioOutDir) return
+
+    const safeSid = (sid ?? 'unknown')
+      .replace(/[^a-zA-Z0-9_-]/g, '_')
+      .slice(0, 80)
+
+    const baseDir = path.isAbsolute(TWILIO_AUDIO_DIR)
+      ? TWILIO_AUDIO_DIR
+      : path.join(process.cwd(), TWILIO_AUDIO_DIR)
+
+    audioOutDir = path.join(baseDir, `${safeSid}-${Date.now()}`)
+    fs.mkdirSync(audioOutDir, { recursive: true })
+
+    mulawWriteStream = fs.createWriteStream(
+      path.join(audioOutDir, 'incoming.mulaw'),
+    )
+
+    if (shouldConvertMulawToPcm16 || TWILIO_SAVE_AUDIO_PCM16) {
+      pcm16WriteStream = fs.createWriteStream(
+        path.join(audioOutDir, `incoming.pcm16le.${targetSampleRate}hz.raw`),
+      )
+    }
+
+    console.log('Twilio audio recording enabled:', {
+      dir: audioOutDir,
+      mulaw: true,
+      pcm16le: Boolean(pcm16WriteStream),
+      pcm16leSampleRate: targetSampleRate,
+    })
+  }
+
+  const closeAudioStreams = () => {
+    try {
+      mulawWriteStream?.end()
+    } catch {}
+    try {
+      pcm16WriteStream?.end()
+    } catch {}
+    mulawWriteStream = null
+    pcm16WriteStream = null
+    audioOutDir = null
+  }
+
   console.log('Vosk audio forward mode:', {
     encoding: shouldConvertMulawToPcm16 ? 'pcm16le' : 'mulaw8k',
-    targetSampleRate: shouldConvertMulawToPcm16
-      ? Number.isFinite(VOSK_TARGET_SAMPLE_RATE) && VOSK_TARGET_SAMPLE_RATE > 0
-        ? VOSK_TARGET_SAMPLE_RATE
-        : 8000
-      : 8000,
+    targetSampleRate,
   })
 
   voskWs.on('open', () => {
@@ -223,14 +291,24 @@ wss.on('connection', (twilioWs, req) => {
     console.log('Connection to Vosk established 🚀')
 
     // Send initial config. Your Vosk proxy supports 8000 or 64000; default to 8000 for Twilio.
-    const sampleRate = shouldConvertMulawToPcm16
-      ? Number.isFinite(VOSK_TARGET_SAMPLE_RATE) && VOSK_TARGET_SAMPLE_RATE > 0
-        ? VOSK_TARGET_SAMPLE_RATE
-        : 8000
-      : 8000
+    const sampleRate = targetSampleRate
 
     try {
-      voskWs.send(JSON.stringify({ config: { sample_rate: sampleRate } }))
+      // Many servers accept extra hints; harmless if ignored.
+      voskWs.send(
+        JSON.stringify({
+          config: {
+            sample_rate: sampleRate,
+            channels: 1,
+            // Vosk expects 16-bit PCM at 8kHz in your setup
+            encoding: 'pcm_s16le',
+          },
+        }),
+      )
+
+      // Some proxies require an explicit "listen": true to start decoding.
+      voskWs.send(JSON.stringify({ listen: true }))
+      sentListenTrue = true
     } catch (e) {
       console.warn('Failed to send Vosk config:', e)
     }
@@ -405,6 +483,7 @@ wss.on('connection', (twilioWs, req) => {
       streamSid = msg.start?.streamSid ?? null
       syntheticTsMs = 0
       pendingAudio.length = 0
+      ensureAudioDir(streamSid)
       console.log('Twilio start:', {
         streamSid,
         callSid: msg.start?.callSid,
@@ -436,6 +515,13 @@ wss.on('connection', (twilioWs, req) => {
       }
 
       const audioBuffer = Buffer.from(payload, 'base64') // mulaw 8k raw
+
+      if (TWILIO_SAVE_AUDIO) {
+        ensureAudioDir(streamSid)
+        try {
+          mulawWriteStream?.write(audioBuffer)
+        } catch {}
+      }
 
       // Basic audio activity signal: Twilio µ-law silence is typically 0xFF.
       // Log about once every 1000ms worth of frames (50 frames * 20ms).
@@ -487,12 +573,24 @@ wss.on('connection', (twilioWs, req) => {
           ? resamplePcm16LELinear(
               decodeMulawToPcm16LE(audioBuffer),
               8000,
-              Number.isFinite(VOSK_TARGET_SAMPLE_RATE) &&
-                VOSK_TARGET_SAMPLE_RATE > 0
-                ? VOSK_TARGET_SAMPLE_RATE
-                : 8000,
+              targetSampleRate,
             )
           : audioBuffer
+
+        if (TWILIO_SAVE_AUDIO && pcm16WriteStream) {
+          try {
+            pcm16WriteStream.write(
+              shouldConvertMulawToPcm16
+                ? outAudio
+                : resamplePcm16LELinear(
+                    decodeMulawToPcm16LE(audioBuffer),
+                    8000,
+                    targetSampleRate,
+                  ),
+            )
+          } catch {}
+        }
+
         voskWs.send(outAudio)
       } else {
         // buffer a bit so we don't drop the initial utterance
@@ -500,12 +598,23 @@ wss.on('connection', (twilioWs, req) => {
           ? resamplePcm16LELinear(
               decodeMulawToPcm16LE(audioBuffer),
               8000,
-              Number.isFinite(VOSK_TARGET_SAMPLE_RATE) &&
-                VOSK_TARGET_SAMPLE_RATE > 0
-                ? VOSK_TARGET_SAMPLE_RATE
-                : 8000,
+              targetSampleRate,
             )
           : audioBuffer
+
+        if (TWILIO_SAVE_AUDIO && pcm16WriteStream) {
+          try {
+            pcm16WriteStream.write(
+              shouldConvertMulawToPcm16
+                ? outAudio
+                : resamplePcm16LELinear(
+                    decodeMulawToPcm16LE(audioBuffer),
+                    8000,
+                    targetSampleRate,
+                  ),
+            )
+          } catch {}
+        }
 
         pendingAudio.push({ tsMs: effectiveTsMs, audio: outAudio })
         let total = 0
@@ -522,6 +631,7 @@ wss.on('connection', (twilioWs, req) => {
 
     if (msg.event === 'stop') {
       console.log('Twilio stop:', msg.stop)
+      closeAudioStreams()
       try {
         voskWs.close()
       } catch {}
@@ -533,6 +643,7 @@ wss.on('connection', (twilioWs, req) => {
 
   twilioWs.on('close', () => {
     console.log('Twilio WS disconnected')
+    closeAudioStreams()
     try {
       voskWs.close()
     } catch {}
@@ -540,6 +651,7 @@ wss.on('connection', (twilioWs, req) => {
 
   twilioWs.on('error', err => {
     console.error('Twilio WS error:', err)
+    closeAudioStreams()
     try {
       voskWs.close()
     } catch {}

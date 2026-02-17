@@ -37,6 +37,8 @@ jspm_packages/
 
 # Optional npm cache directory
 .npm
+.npm-cache/
+twilio-audio/
 
 # Optional eslint cache
 .eslintcache

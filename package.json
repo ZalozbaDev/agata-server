@@ -7,6 +7,8 @@
     "start": "node dist/index.js",
     "dev": "nodemon src/index.ts",
     "build": "tsc",
+    "deps:cache": "mkdir -p .npm-cache && npm ci --cache ./.npm-cache",
+    "deps:install-offline": "npm ci --cache ./.npm-cache --prefer-offline --offline",
     "lint": "eslint src/**/*.ts",
     "lint:fix": "eslint src/**/*.ts --fix",
     "test": "jest",
