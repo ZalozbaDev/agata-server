@@ -84,7 +84,8 @@ wss.on('connection', (twilioWs, req) => {
   let lastMediaLogAtMs = -1
   let twilioMsgCount = 0
   let voskOpen = false
-  const pendingAudio: Buffer[] = []
+  let syntheticTsMs = 0
+  const pendingAudio: Array<{ tsMs: number; audio: Buffer }> = []
   const MAX_PENDING_AUDIO_BYTES = 8000 * 5 // ~5 seconds at 8kHz 8-bit
 
   voskWs.on('open', () => {
@@ -96,7 +97,8 @@ wss.on('connection', (twilioWs, req) => {
       const chunk = pendingAudio.shift()
       if (!chunk) break
       try {
-        voskWs.send(chunk)
+        voskWs.send(to13DigitMsString(chunk.tsMs))
+        voskWs.send(chunk.audio)
       } catch {
         break
       }
@@ -226,6 +228,8 @@ wss.on('connection', (twilioWs, req) => {
 
     if (msg.event === 'start') {
       streamSid = msg.start?.streamSid ?? null
+      syntheticTsMs = 0
+      pendingAudio.length = 0
       console.log('Twilio start:', {
         streamSid,
         callSid: msg.start?.callSid,
@@ -238,18 +242,17 @@ wss.on('connection', (twilioWs, req) => {
     if (msg.event === 'media') {
       mediaFrameCount++
 
-      // 1) optional: timestamp -> dein bisheriges Format (13-stellig)
-      const ts = msg.media?.timestamp
-      if (typeof ts === 'number' && voskWs.readyState === WebSocket.OPEN) {
-        voskWs.send(to13DigitMsString(ts))
-      }
+      // 1) timestamp framing for your Vosk proxy: always send 13 digits.
+      // Twilio sometimes omits timestamp; in that case we synthesize it based on chunk duration.
+      const tsFromTwilio = msg.media?.timestamp
 
       // 2) audio payload base64 -> binary -> an Vosk
       const payload = msg.media?.payload
       if (!payload) {
         if (mediaFrameCount % 50 === 0) {
           console.log('Twilio media (no payload):', {
-            ts,
+            ts: typeof tsFromTwilio === 'number' ? tsFromTwilio : null,
+            syntheticTsMs,
             frames: mediaFrameCount,
             msgCount: twilioMsgCount,
           })
@@ -259,12 +262,19 @@ wss.on('connection', (twilioWs, req) => {
 
       const audioBuffer = Buffer.from(payload, 'base64') // mulaw 8k raw
 
+      const chunkMs = Math.max(1, Math.round(audioBuffer.length / 8)) // 8000 bytes/sec => 8 bytes/ms
+      const effectiveTsMs =
+        typeof tsFromTwilio === 'number' ? tsFromTwilio : syntheticTsMs
+      if (typeof tsFromTwilio !== 'number') {
+        syntheticTsMs += chunkMs
+      }
+
       // Log roughly once per second (timestamp if available), otherwise every 50 frames
-      if (typeof ts === 'number') {
-        if (lastMediaLogAtMs < 0 || ts - lastMediaLogAtMs >= 1000) {
-          lastMediaLogAtMs = ts
+      if (typeof tsFromTwilio === 'number') {
+        if (lastMediaLogAtMs < 0 || tsFromTwilio - lastMediaLogAtMs >= 1000) {
+          lastMediaLogAtMs = tsFromTwilio
           console.log('Twilio media:', {
-            ts,
+            ts: tsFromTwilio,
             bytes: audioBuffer.length,
             frames: mediaFrameCount,
             msgCount: twilioMsgCount,
@@ -273,6 +283,7 @@ wss.on('connection', (twilioWs, req) => {
       } else if (mediaFrameCount % 50 === 0) {
         console.log('Twilio media:', {
           ts: null,
+          syntheticTsMs: effectiveTsMs,
           bytes: audioBuffer.length,
           frames: mediaFrameCount,
           msgCount: twilioMsgCount,
@@ -280,13 +291,14 @@ wss.on('connection', (twilioWs, req) => {
       }
 
       if (voskOpen && voskWs.readyState === WebSocket.OPEN) {
+        voskWs.send(to13DigitMsString(effectiveTsMs))
         voskWs.send(audioBuffer)
       } else {
         // buffer a bit so we don't drop the initial utterance
-        pendingAudio.push(audioBuffer)
+        pendingAudio.push({ tsMs: effectiveTsMs, audio: audioBuffer })
         let total = 0
         for (let i = pendingAudio.length - 1; i >= 0; i--) {
-          total += pendingAudio[i]!.length
+          total += pendingAudio[i]!.audio.length
           if (total > MAX_PENDING_AUDIO_BYTES) {
             pendingAudio.splice(0, i)
             break
