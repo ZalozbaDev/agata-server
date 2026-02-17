@@ -342,7 +342,6 @@ wss.on('connection', (twilioWs, req) => {
   // Twilio -> VOSK (Audio forward)
   twilioWs.on('message', (data, isBinary) => {
     twilioMsgCount++
-    console.log('Received message from Twilio:')
     if (isBinary) {
       console.warn('Twilio sent binary frame:', {
         bytes: (data as Buffer).length,
