@@ -655,7 +655,7 @@ wss.on('connection', (twilioWs, req) => {
           } catch {}
         }
 
-        voskWs.send(outAudio)
+        voskWs.send(audioBuffer)
       } else {
         // buffer a bit so we don't drop the initial utterance
         const outAudio = shouldConvertMulawToPcm16
@@ -681,7 +681,7 @@ wss.on('connection', (twilioWs, req) => {
             )
           } catch {}
         }
-        11826
+
         pendingAudio.push({ tsMs: effectiveTsMs, audio: outAudio })
         let total = 0
         for (let i = pendingAudio.length - 1; i >= 0; i--) {
