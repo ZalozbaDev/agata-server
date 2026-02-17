@@ -2,8 +2,23 @@ import { Response, Router, Request } from 'express'
 
 const router = Router()
 
-// POST /api/hooks/twilio - Twilio SIP
+// POST /api/hooks/twilio - Twilio Voice webhook (logs spoken text via Twilio Speech Recognition)
 router.post('/twilio', async (_req: Request, res: Response) => {
+  res.set('Content-Type', 'text/xml')
+  res.send(`
+    <Response>
+      <Gather input="speech" action="/api/hooks/twilio-gather-result" method="POST" speechTimeout="auto" language="de-DE">
+        <Say language="de-DE">Sag bitte etwas.</Say>
+      </Gather>
+      <Say language="de-DE">Ich habe nichts gehoert.</Say>
+      <Redirect method="POST">/api/hooks/twilio</Redirect>
+    </Response>
+  `)
+})
+
+// POST /api/hooks/twilio-stream - Twilio SIP (Media Streams websocket)
+// Keep this if you still want Twilio -> websocket audio streaming.
+router.post('/twilio-stream', async (_req: Request, res: Response) => {
   const streamUrl = 'wss://agata.fs-coding-api.com/api/hooks/twilio-websocket'
 
   res.set('Content-Type', 'text/xml')
@@ -12,21 +27,6 @@ router.post('/twilio', async (_req: Request, res: Response) => {
       <Connect>
         <Stream url="${streamUrl}" />
       </Connect>
-    </Response>
-  `)
-})
-
-// POST /api/hooks/twilio-gather - Twilio Speech-to-Text (no websocket, no Vosk)
-// Point your Twilio Voice webhook to this endpoint if you only want the spoken text.
-router.post('/twilio-gather', async (_req: Request, res: Response) => {
-  res.set('Content-Type', 'text/xml')
-  res.send(`
-    <Response>
-      <Gather input="speech" action="/api/hooks/twilio-gather-result" method="POST" speechTimeout="auto" language="de-DE">
-        <Say language="de-DE">Sag bitte etwas.</Say>
-      </Gather>
-      <Say language="de-DE">Ich habe nichts gehoert.</Say>
-      <Redirect method="POST">/api/hooks/twilio-gather</Redirect>
     </Response>
   `)
 })
@@ -52,7 +52,7 @@ router.post('/twilio-gather-result', async (req: Request, res: Response) => {
   res.send(`
     <Response>
       <Say language="de-DE">Danke.</Say>
-      <Redirect method="POST">/api/hooks/twilio-gather</Redirect>
+      <Redirect method="POST">/api/hooks/twilio</Redirect>
     </Response>
   `)
 })
