@@ -3,6 +3,7 @@
 import WebSocket from 'ws'
 import { decode as decodeWav } from 'wav-decoder'
 import { generateBamborakAudioFromText } from '../services/bamborakService'
+import { chatService } from '../services/chatService'
 
 export type TwilioMsg =
   | { event: 'connected' }
@@ -35,13 +36,21 @@ export function to13DigitMsString(ms: number) {
 export async function handleTranscriptAndCreateReplyText(
   transcript: string,
 ): Promise<string | null> {
-  // Beispiel: einfache Echo-Logik
   console.log('Handling transcript:', { transcript })
   const t = transcript.trim()
   if (!t) return null
 
-  // TODO: hier deine Logik (LLM, Regeln, Routing, DB, etc.)
-  return `Ty sy prajił: ${t}`
+  try {
+    const result = await chatService.handleChat({
+      message: t,
+      persist: false,
+      isPhoneCall: true,
+    })
+    return result.message || null
+  } catch (e) {
+    console.error('chatService failed (Twilio):', e)
+    return null
+  }
 }
 
 // Twilio needs: raw G.711 µ-law @ 8000 Hz, base64 (NO WAV header)
@@ -127,6 +136,7 @@ export async function ttsToMulaw8kBase64(text: string): Promise<string> {
   const ttsResult = await generateBamborakAudioFromText({
     text: trimmed,
     format: 'wav',
+    includeVisemes: false,
     ...(speaker_id ? { speaker_id } : {}),
   })
 

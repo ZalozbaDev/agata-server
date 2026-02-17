@@ -9,6 +9,7 @@ export interface BamborakAudioFromTextParams {
   text: string
   speaker_id?: BamborakSpeakerId
   format?: 'wav' | 'mp3'
+  includeVisemes?: boolean
 }
 
 export interface BamborakAudioFromTextResult {
@@ -28,7 +29,7 @@ export async function fetchBamborakSpeakers(): Promise<unknown> {
 export async function generateBamborakAudioFromText(
   params: BamborakAudioFromTextParams,
 ): Promise<BamborakAudioFromTextResult> {
-  const { text, speaker_id, format } = params
+  const { text, speaker_id, format, includeVisemes = true } = params
 
   const config: AxiosRequestConfig = {
     method: 'post',
@@ -47,10 +48,9 @@ export async function generateBamborakAudioFromText(
     : Buffer.from(resp.data)
 
   const estimatedDuration = text.length * 0.1 // Rough estimate: 100ms per character
-  const visemeTimeline = visemeGeneratorService.generateVisemesFromText(
-    text,
-    estimatedDuration,
-  )
+  const visemeTimeline = includeVisemes
+    ? visemeGeneratorService.generateVisemesFromText(text, estimatedDuration)
+    : null
 
   return {
     audioBase64: audioBuffer.toString('base64'),

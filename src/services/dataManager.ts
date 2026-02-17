@@ -1,10 +1,10 @@
 import { FetchedData, IFetchedData } from '../models/FetchedData'
 import { dataFetcherService, DataSource } from './dataFetcher'
-import { openAI } from '../index'
 import { Url, IUrl } from '../models/Url'
 import * as cheerio from 'cheerio'
 import { URL } from 'url'
 import { OPEN_AI_MODEL } from '../config/constants'
+import { getOpenAIClient } from './openaiClient'
 
 export class DataManagerService {
   constructor() {
@@ -80,7 +80,7 @@ export class DataManagerService {
         const discoveredLinks = await this.extractAndStoreInternalLinks(
           data.url,
           data.rawHtml || data.content,
-          data.type
+          data.type,
         )
         newlyDiscoveredUrls.push(...discoveredLinks)
       } catch (error) {
@@ -91,7 +91,7 @@ export class DataManagerService {
     // Process newly discovered URLs
     if (newlyDiscoveredUrls.length > 0) {
       console.log(
-        `🔄 Processing ${newlyDiscoveredUrls.length} newly discovered URLs from initial sources...`
+        `🔄 Processing ${newlyDiscoveredUrls.length} newly discovered URLs from initial sources...`,
       )
       const recursiveData = await this.processStoredUrls()
       storedData.push(...recursiveData)
@@ -103,7 +103,7 @@ export class DataManagerService {
   private async extractAndStoreInternalLinks(
     sourceUrl: string,
     htmlContent: string,
-    type: 'news' | 'private' | 'general'
+    type: 'news' | 'private' | 'general',
   ): Promise<string[]> {
     try {
       const $ = cheerio.load(htmlContent)
@@ -148,22 +148,22 @@ export class DataManagerService {
             ]
 
             const isExcluded = excludedPatterns.some(pattern =>
-              pattern.test(absoluteUrl)
+              pattern.test(absoluteUrl),
             )
 
             if (!isExcluded) {
               internalLinks.add(absoluteUrl)
               console.log(
-                `✅ Found internal link: ${absoluteUrl} (text: "${linkText}")`
+                `✅ Found internal link: ${absoluteUrl} (text: "${linkText}")`,
               )
             } else {
               console.log(
-                `❌ Excluded link: ${absoluteUrl} (text: "${linkText}")`
+                `❌ Excluded link: ${absoluteUrl} (text: "${linkText}")`,
               )
             }
           } else {
             console.log(
-              `🌐 External link: ${absoluteUrl} (text: "${linkText}")`
+              `🌐 External link: ${absoluteUrl} (text: "${linkText}")`,
             )
           }
         } catch (error) {
@@ -180,7 +180,7 @@ export class DataManagerService {
       }
 
       console.log(
-        `🎯 Extracted ${internalLinks.size} internal links from ${sourceUrl}`
+        `🎯 Extracted ${internalLinks.size} internal links from ${sourceUrl}`,
       )
       return newlyDiscoveredUrls
     } catch (error) {
@@ -191,7 +191,7 @@ export class DataManagerService {
 
   private async storeUrlIfNotExists(
     url: string,
-    type: 'news' | 'private' | 'general'
+    type: 'news' | 'private' | 'general',
   ): Promise<void> {
     try {
       // Check if URL already exists
@@ -220,7 +220,7 @@ export class DataManagerService {
 
   async getRelevantData(
     query: string,
-    type?: 'news' | 'private' | 'general'
+    type?: 'news' | 'private' | 'general',
   ): Promise<IFetchedData[]> {
     console.log(`🔍 Searching for relevant data for query: "${query}"`)
 
@@ -248,21 +248,21 @@ export class DataManagerService {
 
     if (broaderResults.length > 0) {
       console.log(
-        `✅ Found ${broaderResults.length} relevant results in broader search`
+        `✅ Found ${broaderResults.length} relevant results in broader search`,
       )
       return broaderResults
     }
 
     // Last resort: OpenAI search
     console.log(
-      `🤖 No relevant content found, using OpenAI for final search...`
+      `🤖 No relevant content found, using OpenAI for final search...`,
     )
     return await this.openAISearch(query, filter)
   }
 
   private async multiStageSearch(
     query: string,
-    filter: any
+    filter: any,
   ): Promise<IFetchedData[]> {
     // Stage 1: Exact phrase search (for quoted terms)
     const phraseResults = await this.exactPhraseSearch(query, filter)
@@ -275,7 +275,7 @@ export class DataManagerService {
     const semanticResults = await this.enhancedSemanticSearch(query, filter)
     if (semanticResults.length > 0) {
       console.log(
-        `🧠 Found ${semanticResults.length} results with semantic search`
+        `🧠 Found ${semanticResults.length} results with semantic search`,
       )
       return semanticResults
     }
@@ -299,7 +299,7 @@ export class DataManagerService {
 
   private async exactPhraseSearch(
     query: string,
-    filter: any
+    filter: any,
   ): Promise<IFetchedData[]> {
     try {
       // Extract phrases from query (words that should appear together)
@@ -333,7 +333,7 @@ export class DataManagerService {
 
   private async enhancedSemanticSearch(
     query: string,
-    filter: any
+    filter: any,
   ): Promise<IFetchedData[]> {
     try {
       const queryTerms = this.extractKeyTerms(query)
@@ -354,7 +354,7 @@ export class DataManagerService {
       // If text search fails or returns few results, use enhanced regex
       if (results.length < 3) {
         console.log(
-          '📝 Text search returned few results, using enhanced regex...'
+          '📝 Text search returned few results, using enhanced regex...',
         )
 
         // Create weighted search conditions
@@ -389,7 +389,7 @@ export class DataManagerService {
 
   private async enhancedFuzzySearch(
     query: string,
-    filter: any
+    filter: any,
   ): Promise<IFetchedData[]> {
     try {
       const words = query
@@ -468,7 +468,7 @@ export class DataManagerService {
 
   private async titleSearch(
     query: string,
-    filter: any
+    filter: any,
   ): Promise<IFetchedData[]> {
     try {
       const queryTerms = this.extractKeyTerms(query)
@@ -529,7 +529,7 @@ export class DataManagerService {
   private rankResults(
     results: any[],
     query: string,
-    searchType: 'exact' | 'semantic' | 'fuzzy' | 'title'
+    searchType: 'exact' | 'semantic' | 'fuzzy' | 'title',
   ): any[] {
     if (results.length === 0) return []
 
@@ -788,7 +788,7 @@ export class DataManagerService {
 
   private async openAISearch(
     query: string,
-    filter: any
+    filter: any,
   ): Promise<IFetchedData[]> {
     try {
       // Get a small subset of recent data for OpenAI analysis
@@ -821,7 +821,7 @@ export class DataManagerService {
 
   private async findMostRelevantData(
     query: string,
-    data: IFetchedData[]
+    data: IFetchedData[],
   ): Promise<IFetchedData[]> {
     try {
       const dataSummaries = data.map(item => ({
@@ -842,7 +842,7 @@ ID: ${item.id}
 Title: ${item.title}
 Type: ${item.type}
 Content: ${item.content}
----`
+---`,
   )
   .join('\n')}
 
@@ -851,6 +851,8 @@ If none are relevant, return "none".
 
 Response format: id1,id2,id3 or "none"
 `
+
+      const openAI = getOpenAIClient()
 
       const response = await openAI.chat.completions.create({
         model: OPEN_AI_MODEL,
@@ -861,7 +863,7 @@ Response format: id1,id2,id3 or "none"
       const relevantIds = response.choices[0]?.message?.content?.trim()
 
       if (relevantIds && relevantIds !== 'none') {
-        const ids = relevantIds.split(',').map(id => id.trim())
+        const ids = relevantIds.split(',').map((id: string) => id.trim())
         return data.filter(item => ids.includes((item._id as any).toString()))
       }
 
@@ -886,7 +888,7 @@ Content: ${item.content.substring(0, 1000)}${
           item.content.length > 1000 ? '...' : ''
         }
 Last Updated: ${item.timestamp.toISOString()}
----`
+---`,
       )
       .join('\n')
 
@@ -904,13 +906,13 @@ Last Updated: ${item.timestamp.toISOString()}
 
   async processStoredUrls(
     type?: 'news' | 'private' | 'general',
-    depth: number = 0
+    depth: number = 0,
   ): Promise<IFetchedData[]> {
     try {
       // Limit recursion depth to prevent infinite loops
       if (depth > 3) {
         console.log(
-          `🛑 Stopping recursion at depth ${depth} to prevent infinite loops`
+          `🛑 Stopping recursion at depth ${depth} to prevent infinite loops`,
         )
         return []
       }
@@ -923,7 +925,7 @@ Last Updated: ${item.timestamp.toISOString()}
 
       const storedUrls = await Url.find(filter)
       console.log(
-        `Found ${storedUrls.length} unprocessed URLs to process (depth: ${depth})`
+        `Found ${storedUrls.length} unprocessed URLs to process (depth: ${depth})`,
       )
 
       const processedData: IFetchedData[] = []
@@ -953,9 +955,8 @@ Last Updated: ${item.timestamp.toISOString()}
           }
 
           // Fetch data from the URL
-          const fetchedData = await dataFetcherService.fetchDataFromSource(
-            dataSource
-          )
+          const fetchedData =
+            await dataFetcherService.fetchDataFromSource(dataSource)
 
           // Store the fetched data
           const newData = new FetchedData(fetchedData)
@@ -971,7 +972,7 @@ Last Updated: ${item.timestamp.toISOString()}
           const discoveredLinks = await this.extractAndStoreInternalLinks(
             fetchedData.url,
             fetchedData.rawHtml || fetchedData.content,
-            fetchedData.type
+            fetchedData.type,
           )
           newlyDiscoveredUrls.push(...discoveredLinks)
 
@@ -993,7 +994,7 @@ Last Updated: ${item.timestamp.toISOString()}
         console.log(
           `🔄 Processing ${
             newlyDiscoveredUrls.length
-          } newly discovered URLs (depth: ${depth + 1})...`
+          } newly discovered URLs (depth: ${depth + 1})...`,
         )
         const recursiveData = await this.processStoredUrls(type, depth + 1)
         processedData.push(...recursiveData)
@@ -1068,7 +1069,7 @@ Last Updated: ${item.timestamp.toISOString()}
   }
 
   async resetUrlProcessingStatus(
-    type?: 'news' | 'private' | 'general'
+    type?: 'news' | 'private' | 'general',
   ): Promise<number> {
     try {
       const filter: any = {}
@@ -1116,9 +1117,8 @@ Last Updated: ${item.timestamp.toISOString()}
         type: 'general',
       }
 
-      const fetchedData = await dataFetcherService.fetchDataFromSource(
-        dataSource
-      )
+      const fetchedData =
+        await dataFetcherService.fetchDataFromSource(dataSource)
       const htmlContent = fetchedData.rawHtml || fetchedData.content
 
       const $ = cheerio.load(htmlContent)
@@ -1170,7 +1170,7 @@ Last Updated: ${item.timestamp.toISOString()}
             ]
 
             const isExcluded = excludedPatterns.some(pattern =>
-              pattern.test(absoluteUrl)
+              pattern.test(absoluteUrl),
             )
 
             if (!isExcluded) {

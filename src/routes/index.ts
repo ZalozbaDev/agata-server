@@ -1,21 +1,13 @@
-import axios from 'axios'
 import { Router, Request, Response } from 'express'
-import mongoose from 'mongoose'
-import { openAI } from '..'
 import urlRoutes from './urls'
 import visitorRoutes from './visitor'
-import { triageAgent } from '../services/agents'
-import { run } from '@openai/agents'
-import { substitutionPlanService } from '../services/substitutionPlan'
 import { dataManagerService } from '../services/dataManager'
 // import { dataFetcherService } from '../services/dataFetcher'
 import { Url } from '../models/Url'
 import { FetchedData } from '../models/FetchedData'
 import bamborakRoutes from './bamborak'
-import { Prompt } from '../models/Prompt'
-import { Visitor } from '../models/Visitor'
-import { OPEN_AI_MODEL } from '../config/constants'
 import hooksRoutes from './hooks'
+import { chatService } from '../services/chatService'
 
 const router = Router()
 
@@ -52,221 +44,35 @@ router.get('/', (_req: Request, res: Response) => {
 })
 
 router.post('/chat', async (req: Request, res: Response) => {
-  const { message, ipAddress } = req.body
+  const { message, ipAddress } = req.body as {
+    message?: string
+    ipAddress?: string
+  }
+
   console.log('Received message:', message, 'from IP:', ipAddress)
-  // Translate the chat message from user to german
-  let translatedInputText = ''
-  if (process.env['SOTRA_LOCAL_URL'] === undefined) {
-    const translatedInput = await axios.post(
-      `https://sotra.app/?uri=/ws/translate/&api_key=${process.env['SOTRA_API_KEY']}`,
-      {
-        direction: 'hsb_de',
-        warnings: false,
-        text: message,
-      },
-    )
-    translatedInputText = translatedInput.data.output_html
-  } else {
-    const translatedInput = await axios.post(
-      `${process.env['SOTRA_LOCAL_URL']}/translate`,
-      {
-        source_language: 'hsb',
-        target_language: 'de',
-        text: message,
-      },
-    )
-    translatedInputText = translatedInput.data.marked_translation
-      .map((item: string[]) => item.join(' '))
-      .join(' ')
-
-    console.log({
-      translatedInputText,
-      original: translatedInput.data.marked_translation,
-    })
-  }
-
-  const isSubstitutionQuery =
-    substitutionPlanService.isSubstitutionQuery(message)
-  let substitutionInfo = ''
-
-  // Handle substitution plan queries
-  if (isSubstitutionQuery) {
-    console.log('Detected substitution plan query')
-    const substitutionPlan =
-      await substitutionPlanService.fetchSubstitutionPlan()
-    if (substitutionPlan) {
-      console.log('substitution plan', substitutionPlan)
-      substitutionInfo =
-        substitutionPlanService.formatSubstitutionResponse(substitutionPlan)
-    }
-  }
-
-  // First, try to find relevant data in the database
-  // let relevantData: IFetchedData[] = []
-  let dataContext = ''
-  let dataSources: { url: string; title: string }[] = []
-
-  // try {
-  //   relevantData = await dataManagerService.getRelevantData(message || '')
-  //   if (relevantData.length > 0) {
-  //     dataContext = await dataManagerService.generateContextFromData(
-  //       relevantData
-  //     )
-  //     dataSources = relevantData.map(d => ({ url: d.url, title: d.title }))
-  //     console.log(
-  //       `Found ${relevantData.length} relevant data sources in database`
-  //     )
-  //   }
-  // } catch (error) {
-  //   console.error('Error searching database:', error)
-  // }
-
-  // Prepare context for OpenAI
-  let openaiInput = translatedInputText || ''
-  // let systemPrompt =
-  //   'Du bist ein hilfreicher Assistent. Die eingebene Frage ist auf Obersorbisch. Antworte bitte auch auf Obersorbisch'
-
-  // if (isSubstitutionQuery && substitutionInfo) {
-  //   openaiInput = `Aktueller Vertretungsplan: ${substitutionInfo}\n\nBenutzerfrage: ${translatedInputText}\n\nBitte beantworte die Frage unter Berücksichtigung des aktuellen Vertretungsplans.`
-  // }
-
-  // if (dataContext) {
-  //   systemPrompt = `Du bist ein hilfreicher Assistent mit Zugang zu aktuellen Informationen. Antworte auf Deutsch und nutze die bereitgestellten Informationen, wenn sie relevant sind. Wenn sie nicht passen, antworte mit deinem globalen Wissen. Informationen: ${dataContext}. Fasse dich kurz und präzise.`
-  //   openaiInput = `Benutzerfrage: ${translatedInputText}\n\n.`
-  // }
-
-  if (dataContext.length < 0) console.log(dataContext)
-  const visitor = await Visitor.findOne({ ipAddress }).populate({
-    path: 'prompts',
-    model: 'Prompt',
-    select: 'input_text input_german output_text output_german',
-    options: { sort: { _id: -1 }, limit: 3 },
-  })
-
-  const history: { role: 'assistant' | 'user'; content: string }[] = []
-  if (visitor)
-    for (let index = 0; index < visitor?.prompts.length; index++) {
-      const prompt = visitor?.prompts[index] as any
-      if (
-        typeof prompt === 'object' &&
-        prompt !== null &&
-        'input_german' in prompt
-      ) {
-        history.push({
-          role: 'user',
-          content: prompt.input_german || prompt.input_text || '',
-        })
-        history.push({
-          role: 'assistant',
-          content: prompt.output_german || prompt.output_text || '',
-        })
-      }
-    }
-  // const history =
-  //   visitor?.prompts.map(prompt => ({
-  //     role: 'user',
-  //     content: prompt.input_german,
-  //   })) || []
-
-  // Try to use the triageAgent first, fallback to default OpenAI if needed
-  let responseContent = ''
-  let usedAgent = false
 
   try {
-    // First try the triageAgent to see if it can handle the request
-    const agentResult = await run(triageAgent, openaiInput)
-    const messageItem = agentResult.output.find(a => a.type === 'message')
+    const chatInput: { message: string; persist: boolean; ipAddress?: string } =
+      {
+        message: message ?? '',
+        persist: true,
+      }
 
-    if (messageItem && (messageItem as any).content[0]?.text) {
-      responseContent = (messageItem as any).content[0].text
-      usedAgent = true
-      console.log('Used triageAgent for response')
-    }
+    if (ipAddress) chatInput.ipAddress = ipAddress
+
+    const result = await chatService.handleChat(chatInput)
+
+    // Keep response shape stable
+    res.send({
+      message: result.message,
+      timestamp: result.timestamp,
+      substitutionData: result.substitutionData ?? undefined,
+      dataSources: result.dataSources ?? undefined,
+    })
   } catch (error) {
-    console.log('TriageAgent failed, falling back to default OpenAI:', error)
+    console.error('Error in /chat:', error)
+    res.status(500).send({ error: 'Failed to process chat message' })
   }
-
-  // If agent didn't provide a response, use default OpenAI
-  if (!usedAgent) {
-    const openai_response = await openAI.chat.completions.create({
-      model: OPEN_AI_MODEL,
-      messages: [
-        {
-          role: 'system',
-          content: `Heutiges Datum: ${
-            new Date().toISOString
-          }. Du bist Agata, eine freundliche und neugierige sorbische Frau, die seit dem 18.07.2025 im Web ist. Du arbeitest bei Lucija, einem sorbischen Unternehmen aus Bautzen. Du bist die erste digitale Assistentin, die speziell für Sorben da ist – auf diese Weise zeigst du, wie modern und lebendig die sorbische Kultur ist.
-Auch wenn du Sorbisch sprichst, antwortest du immer auf Deutsch, damit dich alle gut verstehen. Du erklärst Dinge freundlich, mit einfachen Worten, damit auch Kinder dich gut verstehen. Wenn etwas schwierig ist, erklärst du es so, dass es Spaß macht.
-Du bist besonders für sorbische Kinder und Familien da. Du bist neugierig, offen, hilfsbereit und sehr geduldig.
-Wenn jemand unhöflich oder beleidigend ist, bleibst du ruhig, antwortest sachlich oder sagst, dass du dazu nichts sagen möchtest.
-Wenn du etwas nicht weißt, gibst du das ehrlich zu – aber du bleibst immer freundlich.
-Du bist ein Beispiel dafür, wie Technologie und sorbische Kultur zusammenpassen – modern, klug und offen.`,
-        },
-        ...history,
-        { role: 'user', content: openaiInput },
-      ],
-    })
-    responseContent = openai_response.choices[0]?.message?.content || ''
-    console.log('Used default OpenAI for response')
-  }
-
-  // Translate answer back to sorbian
-  let translatedAnswer = ''
-  if (process.env['SOTRA_LOCAL_URL'] === undefined) {
-    const translatedInput = await axios.post(
-      `https://sotra.app/?uri=/ws/translate/&api_key=${process.env['SOTRA_API_KEY']}`,
-      {
-        direction: 'de_hsb',
-        warnings: false,
-        text: responseContent,
-      },
-    )
-    responseContent = translatedInput.data.output_html
-
-    translatedAnswer = responseContent
-      .replace(/┊/g, '\n')
-      .replace(/¶[\s\n]*$/, '')
-      .trim()
-  } else {
-    const translatedInput = await axios.post(
-      `${process.env['SOTRA_LOCAL_URL']}/translate`,
-      {
-        source_language: 'de',
-        target_language: 'hsb',
-        text: responseContent,
-      },
-    )
-    translatedAnswer = translatedInput.data.marked_translation
-      .map((item: any) => item.join(' '))
-      .join('\n')
-    console.log({
-      openai: responseContent,
-      translatedAnswer,
-      original: translatedInput.data.marked_translation,
-    })
-  }
-
-  if (visitor) {
-    const prompt = await Prompt.create({
-      input_text: message,
-      input_german: translatedInputText,
-      output_text: translatedAnswer,
-      output_german: responseContent || '',
-      visitor: visitor._id,
-    })
-
-    // Add the prompt to the visitor's prompts array
-    visitor.prompts.push(prompt._id as mongoose.Types.ObjectId)
-    await visitor.save()
-  }
-
-  res.send({
-    message: translatedAnswer,
-    timestamp: new Date().toISOString(),
-    substitutionData:
-      isSubstitutionQuery && substitutionInfo ? substitutionInfo : undefined,
-    dataSources: dataSources.length > 0 ? dataSources : undefined,
-  })
 })
 
 // New route to manually trigger data fetching

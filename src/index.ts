@@ -5,7 +5,6 @@ import dotenv from 'dotenv'
 import { connectDB } from './config/database'
 import { errorHandler } from './middleware/errorHandler'
 import routes from './routes'
-import OpenAI from 'openai'
 import http from 'http'
 import { WebSocket, WebSocketServer } from 'ws'
 import fs from 'fs'
@@ -16,7 +15,6 @@ import {
   TwilioMsg,
   to13DigitMsString,
   sendAudioToTwilio,
-  clearTwilioPlayback,
 } from './helpers/twilio-socket'
 
 // Load environment variables
@@ -24,9 +22,6 @@ dotenv.config()
 
 const app = express()
 const PORT = process.env['PORT'] || 3000
-export const openAI = new OpenAI({
-  apiKey: process.env['OPENAI_API_KEY'] || 'OPENAI_API_KEY',
-})
 
 // Middleware
 app.use(helmet())
@@ -491,15 +486,6 @@ wss.on('connection', (twilioWs, req) => {
       return
     }
 
-    // ✅ This is the recognized user speech
-    console.log(
-      'Vosk transcript:',
-      plainText,
-      '(',
-      plainText === lastFinalText,
-      ')',
-    )
-
     // Optional DB Save (wie bei dir)
     // if (recordId) {
     //   await AudioRecord.findByIdAndUpdate(recordId, {
@@ -528,10 +514,11 @@ wss.on('connection', (twilioWs, req) => {
     const replyText = await handleTranscriptAndCreateReplyText(plainText)
     if (!replyText) return
 
-    console.log('Reply text:', replyText)
+    console.log('🚀 Reply text:', replyText)
 
     // Barge-in freundlich: laufende Ausgabe stoppen, bevor wir neue senden
-    clearTwilioPlayback(twilioWs, streamSid)
+    // TODO: If AI has to stop
+    // clearTwilioPlayback(twilioWs, streamSid)
 
     try {
       const b64 = await ttsToMulaw8kBase64(replyText)
@@ -620,12 +607,6 @@ wss.on('connection', (twilioWs, req) => {
         for (let i = 0; i < audioBuffer.length; i++) {
           if (audioBuffer[i] !== 0xff) nonSilence++
         }
-        const nonSilenceRatio = nonSilence / Math.max(1, audioBuffer.length)
-        console.log('Twilio audio activity:', {
-          frames: mediaFrameCount,
-          bytes: audioBuffer.length,
-          nonSilenceRatio: Number(nonSilenceRatio.toFixed(3)),
-        })
       }
 
       const chunkMs = Math.max(1, Math.round(audioBuffer.length / 8)) // 8000 bytes/sec => 8 bytes/ms
