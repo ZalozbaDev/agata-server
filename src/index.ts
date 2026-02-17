@@ -235,6 +235,9 @@ wss.on('connection', (twilioWs, req) => {
   let audioOutDir: string | null = null
   let mulawWriteStream: fs.WriteStream | null = null
   let pcm16WriteStream: fs.WriteStream | null = null
+  let voskPacketsWriteStream: fs.WriteStream | null = null
+  let voskPacketsIndexWriteStream: fs.WriteStream | null = null
+  let packetSeq = 0
 
   const ensureAudioDir = (sid: string | null) => {
     if (!TWILIO_SAVE_AUDIO) return
@@ -261,12 +264,77 @@ wss.on('connection', (twilioWs, req) => {
       )
     }
 
+    // Packetized capture of what we send to Vosk (timestamp + exact audio bytes)
+    packetSeq = 0
+    voskPacketsWriteStream = fs.createWriteStream(
+      path.join(audioOutDir, 'vosk_packets.bin'),
+    )
+    voskPacketsIndexWriteStream = fs.createWriteStream(
+      path.join(audioOutDir, 'vosk_packets.jsonl'),
+    )
+    try {
+      fs.writeFileSync(
+        path.join(audioOutDir, 'vosk_packets_meta.json'),
+        JSON.stringify(
+          {
+            createdAt: new Date().toISOString(),
+            streamSid: sid,
+            inputFromTwilio: {
+              encoding: 'mulaw',
+              sampleRate: 8000,
+              channels: 1,
+            },
+            outputToVosk: {
+              encoding: shouldConvertMulawToPcm16 ? 'pcm_s16le' : 'mulaw',
+              sampleRate: targetSampleRate,
+              channels: 1,
+            },
+            format: {
+              binary: 'vosk_packets.bin',
+              packetHeader: {
+                timestampMs: 'uint64le',
+                audioBytes: 'uint32le',
+              },
+              packetBody: 'audio bytes as sent to Vosk',
+              index: 'vosk_packets.jsonl (one JSON object per packet)',
+            },
+          },
+          null,
+          2,
+        ),
+      )
+    } catch {}
+
     console.log('Twilio audio recording enabled:', {
       dir: audioOutDir,
       mulaw: true,
       pcm16le: Boolean(pcm16WriteStream),
       pcm16leSampleRate: targetSampleRate,
+      voskPackets: true,
     })
+  }
+
+  const writeVoskPacket = (tsMs: number, audio: Buffer) => {
+    if (!TWILIO_SAVE_AUDIO) return
+    if (!voskPacketsWriteStream || !voskPacketsIndexWriteStream) return
+
+    packetSeq++
+    const ts = Math.max(0, Math.floor(tsMs))
+    const header = Buffer.alloc(12)
+    header.writeBigUInt64LE(BigInt(ts), 0)
+    header.writeUInt32LE(audio.length, 8)
+    try {
+      voskPacketsWriteStream.write(header)
+      voskPacketsWriteStream.write(audio)
+      voskPacketsIndexWriteStream.write(
+        JSON.stringify({
+          i: packetSeq,
+          tsMs: ts,
+          ts13: to13DigitMsString(ts),
+          bytes: audio.length,
+        }) + '\n',
+      )
+    } catch {}
   }
 
   const closeAudioStreams = () => {
@@ -276,8 +344,16 @@ wss.on('connection', (twilioWs, req) => {
     try {
       pcm16WriteStream?.end()
     } catch {}
+    try {
+      voskPacketsWriteStream?.end()
+    } catch {}
+    try {
+      voskPacketsIndexWriteStream?.end()
+    } catch {}
     mulawWriteStream = null
     pcm16WriteStream = null
+    voskPacketsWriteStream = null
+    voskPacketsIndexWriteStream = null
     audioOutDir = null
   }
 
@@ -295,19 +371,8 @@ wss.on('connection', (twilioWs, req) => {
 
     try {
       // Many servers accept extra hints; harmless if ignored.
-      voskWs.send(
-        JSON.stringify({
-          config: {
-            sample_rate: sampleRate,
-            channels: 1,
-            // Vosk expects 16-bit PCM at 8kHz in your setup
-            encoding: 'pcm_s16le',
-          },
-        }),
-      )
+      voskWs.send(`sample_rate=${sampleRate}`)
 
-      // Some proxies require an explicit "listen": true to start decoding.
-      voskWs.send(JSON.stringify({ listen: true }))
       sentListenTrue = true
     } catch (e) {
       console.warn('Failed to send Vosk config:', e)
@@ -318,7 +383,6 @@ wss.on('connection', (twilioWs, req) => {
       const chunk = pendingAudio.shift()
       if (!chunk) break
       try {
-        voskWs.send(to13DigitMsString(chunk.tsMs))
         voskWs.send(chunk.audio)
       } catch {
         break
@@ -356,7 +420,6 @@ wss.on('connection', (twilioWs, req) => {
     ) {
       sentListenTrue = true
       try {
-        voskWs.send(JSON.stringify({ listen: true }))
         if (VOSK_DEBUG) console.log('Sent Vosk listen:true')
       } catch {}
     }
@@ -568,7 +631,6 @@ wss.on('connection', (twilioWs, req) => {
       }
 
       if (voskOpen && voskWs.readyState === WebSocket.OPEN) {
-        voskWs.send(to13DigitMsString(effectiveTsMs))
         const outAudio = shouldConvertMulawToPcm16
           ? resamplePcm16LELinear(
               decodeMulawToPcm16LE(audioBuffer),
@@ -576,6 +638,8 @@ wss.on('connection', (twilioWs, req) => {
               targetSampleRate,
             )
           : audioBuffer
+
+        if (TWILIO_SAVE_AUDIO) writeVoskPacket(effectiveTsMs, outAudio)
 
         if (TWILIO_SAVE_AUDIO && pcm16WriteStream) {
           try {
@@ -602,6 +666,8 @@ wss.on('connection', (twilioWs, req) => {
             )
           : audioBuffer
 
+        if (TWILIO_SAVE_AUDIO) writeVoskPacket(effectiveTsMs, outAudio)
+
         if (TWILIO_SAVE_AUDIO && pcm16WriteStream) {
           try {
             pcm16WriteStream.write(
@@ -615,7 +681,7 @@ wss.on('connection', (twilioWs, req) => {
             )
           } catch {}
         }
-
+        11826
         pendingAudio.push({ tsMs: effectiveTsMs, audio: outAudio })
         let total = 0
         for (let i = pendingAudio.length - 1; i >= 0; i--) {
