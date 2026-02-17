@@ -371,7 +371,7 @@ wss.on('connection', (twilioWs, req) => {
 
     try {
       // Many servers accept extra hints; harmless if ignored.
-      voskWs.send(`sample_rate=${sampleRate}`)
+      voskWs.send(`sample_rate=${sampleRate},buffer_size=${20}`)
 
       sentListenTrue = true
     } catch (e) {
