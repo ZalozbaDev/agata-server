@@ -29,7 +29,7 @@ export async function fetchBamborakSpeakers(): Promise<unknown> {
 export async function generateBamborakAudioFromText(
   params: BamborakAudioFromTextParams,
 ): Promise<BamborakAudioFromTextResult> {
-  const { text, speaker_id, format, includeVisemes = true } = params
+  const { text, speaker_id, format = 'mp3', includeVisemes = true } = params
 
   const config: AxiosRequestConfig = {
     method: 'post',

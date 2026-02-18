@@ -8,6 +8,20 @@ import { triageAgent } from './agents'
 import { substitutionPlanService } from './substitutionPlan'
 import { getOpenAIClient } from './openaiClient'
 
+let ragPool: any | null = null
+
+function getRagPool() {
+  if (ragPool) return ragPool
+
+  // RAG is optional. Only initialize when DB_DSN is configured.
+  if (!process.env['DB_DSN']) return null
+
+  // eslint-disable-next-line @typescript-eslint/no-var-requires
+  const { createPool } = require('./rag/db')
+  ragPool = createPool()
+  return ragPool
+}
+
 export type ChatServiceResult = {
   message: string
   timestamp: string
@@ -172,19 +186,49 @@ export const chatService = {
 
     let responseContent = ''
     let usedAgent = false
+    let usedRag = false
+    let ragSources: { url: string; title: string }[] | undefined
 
+    // Try RAG first: if it has confident info, use it; otherwise skip.
     try {
-      const agentResult = await run(triageAgent, openaiInput)
-      const messageItem = agentResult.output.find(a => a.type === 'message')
-      if (messageItem && (messageItem as any).content[0]?.text) {
-        responseContent = (messageItem as any).content[0].text
-        usedAgent = true
+      const pool = getRagPool()
+      if (pool) {
+        // eslint-disable-next-line @typescript-eslint/no-var-requires
+        const { answerQuestion } = require('./rag/rag')
+        const openAI = getOpenAIClient()
+        const ragResult = await answerQuestion({
+          client: openAI,
+          pool,
+          question: translatedInputText,
+        })
+
+        if (ragResult?.answer) {
+          responseContent = String(ragResult.answer)
+          usedRag = true
+          ragSources = (ragResult.sources ?? []).map((s: any) => ({
+            url: String(s.url ?? ''),
+            title: String(s.url ?? ''),
+          }))
+        }
       }
     } catch {
-      // fall back to default OpenAI
+      // ignore RAG failures and fall back
     }
 
-    if (!usedAgent) {
+    if (!usedRag) {
+      try {
+        const agentResult = await run(triageAgent, openaiInput)
+        const messageItem = agentResult.output.find(a => a.type === 'message')
+        if (messageItem && (messageItem as any).content[0]?.text) {
+          responseContent = (messageItem as any).content[0].text
+          usedAgent = true
+        }
+      } catch {
+        // fall back to default OpenAI
+      }
+    }
+
+    if (!usedAgent && !usedRag) {
       const openAI = getOpenAIClient()
       const phoneCallSystemAddon = isPhoneCall
         ? '\n\nWICHTIG (Telefonat): Halte die Antwort extrem kurz (max. 2 kurze Sätze). Keine Listen. Keine langen Erklärungen. Stelle höchstens eine kurze Rückfrage.'
@@ -209,6 +253,9 @@ Du bist ein Beispiel dafür, wie Technologie und sorbische Kultur zusammenpassen
       responseContent = openaiResponse.choices[0]?.message?.content || ''
     }
 
+    console.log({ usedAgent, usedRag })
+    console.log('Final response content:', responseContent)
+
     const translatedAnswer = await translateDeToHsb(responseContent)
 
     if (persist && ipAddress) {
@@ -224,6 +271,10 @@ Du bist ein Beispiel dafür, wie Technologie und sorbische Kultur zusammenpassen
     const result: ChatServiceResult = {
       message: translatedAnswer,
       timestamp: new Date().toISOString(),
+    }
+
+    if (usedRag && ragSources && ragSources.length > 0) {
+      result.dataSources = ragSources
     }
 
     if (isSubstitutionQuery && substitutionInfo) {
