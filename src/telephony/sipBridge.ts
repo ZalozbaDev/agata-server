@@ -64,6 +64,12 @@ function extractTranscript(data: any): string {
   return ''
 }
 
+function previewForLog(input: string, maxLen = 1200): string {
+  const s = input.replace(/\s+/g, ' ').trim()
+  if (s.length <= maxLen) return s
+  return `${s.slice(0, maxLen)}…(+${s.length - maxLen} chars)`
+}
+
 async function ttsToPcm16le16k(text: string): Promise<Buffer> {
   const trimmed = text.trim()
   if (!trimmed) return Buffer.alloc(0)
@@ -298,14 +304,30 @@ export function startSipClientBridge(): void {
 
       session.voskWs.on('message', async eventData => {
         const s = eventData.toString()
+
+        // eslint-disable-next-line no-console
+        console.log(
+          `[VOSK->SIP] callId=${session.callId} raw=${previewForLog(s)}`,
+        )
+
         let obj: any
         try {
           obj = JSON.parse(s)
         } catch {
+          // eslint-disable-next-line no-console
+          console.warn(
+            `[VOSK->SIP] callId=${session.callId} non-json message ignored`,
+          )
           return
         }
 
         const plainText = extractTranscript(obj).trim()
+
+        // eslint-disable-next-line no-console
+        console.log(
+          `[VOSK->SIP] callId=${session.callId} transcript=${plainText ? previewForLog(plainText, 300) : '<empty>'}`,
+        )
+
         if (!plainText) return
 
         // ignore startup noise
