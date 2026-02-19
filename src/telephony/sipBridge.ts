@@ -9,12 +9,7 @@ import {
   encodeSipAudioFrame,
   type SipAudioFrame,
 } from './sipProtocol'
-import {
-  downsample16kTo8kPickEveryOtherPcm16le,
-  float32ToPcm16le,
-  mixDownToMono,
-  resampleLinear,
-} from './audio'
+import { float32ToPcm16le, mixDownToMono, resampleLinear } from './audio'
 
 type PlaybackState = {
   timer: NodeJS.Timeout | null
@@ -70,7 +65,7 @@ function previewForLog(input: string, maxLen = 1200): string {
   return `${s.slice(0, maxLen)}…(+${s.length - maxLen} chars)`
 }
 
-async function ttsToPcm16le16k(text: string): Promise<Buffer> {
+async function ttsToPcm16le8k(text: string): Promise<Buffer> {
   const trimmed = text.trim()
   if (!trimmed) return Buffer.alloc(0)
 
@@ -85,7 +80,7 @@ async function ttsToPcm16le16k(text: string): Promise<Buffer> {
   const wavBuf = Buffer.from(ttsResult.audioBase64, 'base64')
   const decoded = await decodeWav(wavBuf)
   const mono = mixDownToMono(decoded.channelData)
-  const resampled = resampleLinear(mono, decoded.sampleRate, 16000)
+  const resampled = resampleLinear(mono, decoded.sampleRate, 8000)
   return float32ToPcm16le(resampled)
 }
 
@@ -100,12 +95,12 @@ function cancelPlayback(session: CallSession): void {
 function startPlayback(
   ws: WebSocket,
   session: CallSession,
-  audioPcm16le16k: Buffer,
+  audioPcm16le8k: Buffer,
 ): void {
   cancelPlayback(session)
-  if (!audioPcm16le16k.length) return
+  if (!audioPcm16le8k.length) return
 
-  const frameBytes = 640 // 20ms @ 16kHz: 320 samples * 2 bytes
+  const frameBytes = 320 // 20ms @ 8kHz: 160 samples * 2 bytes
   const frameMs = 20
 
   let offset = 0
@@ -115,12 +110,12 @@ function startPlayback(
   const sendNext = () => {
     if (st.cancelled) return
     if (ws.readyState !== WebSocket.OPEN) return
-    if (offset >= audioPcm16le16k.length) {
+    if (offset >= audioPcm16le8k.length) {
       session.playback = null
       return
     }
 
-    let chunk = audioPcm16le16k.subarray(offset, offset + frameBytes)
+    let chunk = audioPcm16le8k.subarray(offset, offset + frameBytes)
     offset += frameBytes
 
     if (chunk.length < frameBytes) {
@@ -280,13 +275,10 @@ export function startSipClientBridge(): void {
 
       const session = ensureSession(sessions, frame.callId)
 
-      // Vosk expects PCM16LE @ 8k in our setup; sip-client provides PCM16LE @ 16k.
-      const pcm8k = downsample16kTo8kPickEveryOtherPcm16le(frame.audioPcm16le)
-
       if (session.voskOpen && session.voskWs.readyState === WebSocket.OPEN) {
-        session.voskWs.send(pcm8k)
+        session.voskWs.send(frame.audioPcm16le)
       } else {
-        session.pendingAudio.push(pcm8k)
+        session.pendingAudio.push(frame.audioPcm16le)
         // keep pending bounded (~2s @ 8kHz, 16-bit): 8000*2*2 = 32000 bytes
         let total = 0
         for (let i = session.pendingAudio.length - 1; i >= 0; i--) {
@@ -358,7 +350,7 @@ export function startSipClientBridge(): void {
         console.log(`[SIP] reply callId=${session.callId} text=${replyText}`)
 
         try {
-          const pcm16 = await ttsToPcm16le16k(replyText)
+          const pcm16 = await ttsToPcm16le8k(replyText)
           if (!ws || ws.readyState !== WebSocket.OPEN) return
           startPlayback(ws, session, pcm16)
         } catch (e) {
