@@ -232,10 +232,24 @@ export function startSipClientBridge(): void {
     console.log(`[SIP] connecting ${sipUrl}`)
     ws = new WebSocket(sipUrl)
 
+    ws.on('unexpected-response', (_req, res) => {
+      // eslint-disable-next-line no-console
+      console.error(
+        `[SIP] unexpected response status=${res.statusCode} ${res.statusMessage ?? ''}`,
+      )
+    })
+
     ws.on('open', () => {
       retryMs = 500
       // eslint-disable-next-line no-console
       console.log('[SIP] connected')
+    })
+
+    ws.on('close', (code, reason) => {
+      // eslint-disable-next-line no-console
+      console.log(
+        `[SIP] ws close code=${code} reason=${reason ? reason.toString() : ''}`,
+      )
     })
 
     ws.on('message', async (data, isBinary) => {
