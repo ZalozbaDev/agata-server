@@ -2,6 +2,8 @@
 
 import WebSocket from 'ws'
 import { decode as decodeWav } from 'wav-decoder'
+import * as fs from 'node:fs'
+import * as path from 'node:path'
 import { chatService } from '../services/chatService'
 import { generateBamborakAudioFromText } from '../services/bamborakService'
 import {
@@ -10,6 +12,14 @@ import {
   type SipAudioFrame,
 } from './sipProtocol'
 import { float32ToPcm16le, mixDownToMono, resampleLinear } from './audio'
+
+type WavDump = {
+  fd: number
+  filePath: string
+  dataBytes: number
+  sampleRateHz: number
+  channels: number
+}
 
 type PlaybackState = {
   timer: NodeJS.Timeout | null
@@ -25,7 +35,100 @@ type CallSession = {
   voskOpen: boolean
   pendingAudio: Buffer[]
 
+  rxDump: WavDump | null
+
   playback: PlaybackState | null
+}
+
+function envFlag(name: string, def = false): boolean {
+  const v = (process.env[name] ?? '').trim().toLowerCase()
+  if (!v) return def
+  return v === '1' || v === 'true' || v === 'yes' || v === 'on'
+}
+
+function sanitizeForFileName(input: string): string {
+  return input.replace(/[^a-zA-Z0-9._-]+/g, '_').slice(0, 80)
+}
+
+function wavHeaderPcm16le(
+  dataBytes: number,
+  sampleRateHz: number,
+  channels: number,
+): Buffer {
+  const bitsPerSample = 16
+  const blockAlign = (channels * bitsPerSample) / 8
+  const byteRate = sampleRateHz * blockAlign
+
+  const buf = Buffer.alloc(44)
+  buf.write('RIFF', 0, 4, 'ascii')
+  buf.writeUInt32LE(36 + dataBytes, 4)
+  buf.write('WAVE', 8, 4, 'ascii')
+  buf.write('fmt ', 12, 4, 'ascii')
+  buf.writeUInt32LE(16, 16) // PCM fmt chunk size
+  buf.writeUInt16LE(1, 20) // PCM format
+  buf.writeUInt16LE(channels, 22)
+  buf.writeUInt32LE(sampleRateHz, 24)
+  buf.writeUInt32LE(byteRate, 28)
+  buf.writeUInt16LE(blockAlign, 32)
+  buf.writeUInt16LE(bitsPerSample, 34)
+  buf.write('data', 36, 4, 'ascii')
+  buf.writeUInt32LE(dataBytes, 40)
+  return buf
+}
+
+function openRxDump(callId: string): WavDump | null {
+  if (!envFlag('SIP_DUMP_RX_AUDIO', false)) return null
+
+  const sampleRateHz = 8000
+  const channels = 1
+
+  const dir = (process.env['SIP_DUMP_RX_AUDIO_DIR'] ?? '').trim()
+  const outDir = dir ? dir : path.join(process.cwd(), 'recordings', 'phone')
+
+  fs.mkdirSync(outDir, { recursive: true })
+
+  const stamp = new Date().toISOString().replace(/[:.]/g, '-')
+  const safeCallId = sanitizeForFileName(callId)
+  const filePath = path.join(outDir, `rx-${stamp}-${safeCallId}.wav`)
+
+  const fd = fs.openSync(filePath, 'w')
+  const header = wavHeaderPcm16le(0, sampleRateHz, channels)
+  fs.writeSync(fd, header)
+
+  // eslint-disable-next-line no-console
+  console.log(`[SIP] dumping rx audio callId=${callId} file=${filePath}`)
+
+  return { fd, filePath, dataBytes: 0, sampleRateHz, channels }
+}
+
+function appendRxDump(dump: WavDump, pcm16le: Buffer): void {
+  if (!pcm16le.length) return
+  fs.writeSync(dump.fd, pcm16le)
+  dump.dataBytes += pcm16le.length
+}
+
+function closeRxDump(dump: WavDump): void {
+  try {
+    const header = wavHeaderPcm16le(
+      dump.dataBytes,
+      dump.sampleRateHz,
+      dump.channels,
+    )
+    fs.writeSync(dump.fd, header, 0, header.length, 0)
+  } catch {
+    // ignore
+  }
+
+  try {
+    fs.closeSync(dump.fd)
+  } catch {
+    // ignore
+  }
+
+  // eslint-disable-next-line no-console
+  console.log(
+    `[SIP] dumped rx audio file=${dump.filePath} bytes=${dump.dataBytes}`,
+  )
 }
 
 function extractTranscript(data: any): string {
@@ -177,6 +280,7 @@ function ensureSession(
     voskWs,
     voskOpen: false,
     pendingAudio: [],
+    rxDump: openRxDump(callId),
     playback: null,
   }
 
@@ -210,6 +314,15 @@ function closeSession(
     s.voskWs.close()
   } catch {
     // ignore
+  }
+
+  if (s.rxDump) {
+    try {
+      closeRxDump(s.rxDump)
+    } catch {
+      // ignore
+    }
+    s.rxDump = null
   }
 
   sessions.delete(callId)
@@ -274,6 +387,15 @@ export function startSipClientBridge(): void {
       if (!frame) return
 
       const session = ensureSession(sessions, frame.callId)
+
+      if (session.rxDump) {
+        try {
+          appendRxDump(session.rxDump, frame.audioPcm16le)
+        } catch (e) {
+          // eslint-disable-next-line no-console
+          console.warn(`[SIP] rx dump write failed callId=${session.callId}`, e)
+        }
+      }
 
       if (session.voskOpen && session.voskWs.readyState === WebSocket.OPEN) {
         session.voskWs.send(frame.audioPcm16le)
