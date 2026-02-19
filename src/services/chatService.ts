@@ -190,30 +190,32 @@ export const chatService = {
     let ragSources: { url: string; title: string }[] | undefined
 
     // Try RAG first: if it has confident info, use it; otherwise skip.
-    // try {
-    //   const pool = getRagPool()
-    //   if (pool) {
-    //     // eslint-disable-next-line @typescript-eslint/no-var-requires
-    //     const { answerQuestion } = require('./rag/rag')
-    //     const openAI = getOpenAIClient()
-    //     const ragResult = await answerQuestion({
-    //       client: openAI,
-    //       pool,
-    //       question: translatedInputText,
-    //     })
+    if (false) {
+      try {
+        const pool = getRagPool()
+        if (pool) {
+          // eslint-disable-next-line @typescript-eslint/no-var-requires
+          const { answerQuestion } = require('./rag/rag')
+          const openAI = getOpenAIClient()
+          const ragResult = await answerQuestion({
+            client: openAI,
+            pool,
+            question: translatedInputText,
+          })
 
-    //     if (ragResult?.answer) {
-    //       responseContent = String(ragResult.answer)
-    //       usedRag = true
-    //       ragSources = (ragResult.sources ?? []).map((s: any) => ({
-    //         url: String(s.url ?? ''),
-    //         title: String(s.url ?? ''),
-    //       }))
-    //     }
-    //   }
-    // } catch {
-    //   // ignore RAG failures and fall back
-    // }
+          if (ragResult?.answer) {
+            responseContent = String(ragResult.answer)
+            usedRag = true
+            ragSources = (ragResult.sources ?? []).map((s: any) => ({
+              url: String(s.url ?? ''),
+              title: String(s.url ?? ''),
+            }))
+          }
+        }
+      } catch {
+        // ignore RAG failures and fall back
+      }
+    }
 
     if (!usedRag) {
       try {
