@@ -304,12 +304,6 @@ export function startSipClientBridge(): void {
 
       session.voskWs.on('message', async eventData => {
         const s = eventData.toString()
-
-        // eslint-disable-next-line no-console
-        console.log(
-          `[VOSK->SIP] callId=${session.callId} raw=${previewForLog(s)}`,
-        )
-
         let obj: any
         try {
           obj = JSON.parse(s)
@@ -323,12 +317,17 @@ export function startSipClientBridge(): void {
 
         const plainText = extractTranscript(obj).trim()
 
+        // Skip Vosk keepalive/noise messages like {"partial":"","listen":"true"}
+        if (!plainText) return
+
         // eslint-disable-next-line no-console
         console.log(
-          `[VOSK->SIP] callId=${session.callId} transcript=${plainText ? previewForLog(plainText, 300) : '<empty>'}`,
+          `[VOSK->SIP] callId=${session.callId} raw=${previewForLog(s)}`,
         )
-
-        if (!plainText) return
+        // eslint-disable-next-line no-console
+        console.log(
+          `[VOSK->SIP] callId=${session.callId} transcript=${previewForLog(plainText, 300)}`,
+        )
 
         // ignore startup noise
         if (/whisper\.cpp|ggml-model|ggml-model-bin|ggml/i.test(plainText))
