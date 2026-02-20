@@ -22,6 +22,12 @@ type RawDump = {
   counter: number
 }
 
+type VoskTxChunkDump = {
+  outDir: string
+  counter: number
+  callId: string
+}
+
 type PcmDump = {
   fd: number
   filePath: string
@@ -48,6 +54,9 @@ type CallSession = {
   // Twilio-style timestamp stream to Vosk (13-digit ms string messages)
   voskTimestampMs: number
 
+  // Optional dump of outgoing chunks sent to Vosk
+  voskTxDump: VoskTxChunkDump | null
+
   rxDump: WavDump | null
   rxPcmDump: PcmDump | null
 
@@ -71,6 +80,59 @@ const rawWsDump: RawDump | null = (() => {
   console.log(`[SIP] dumping raw WS messages dir=${outDir}`)
   return { outDir, counter: 0 }
 })()
+
+function openVoskTxChunkDump(callId: string): VoskTxChunkDump | null {
+  if (!envFlag('VOSK_DUMP_TX_CHUNKS', false)) return null
+
+  const dir = (process.env['VOSK_DUMP_TX_CHUNKS_DIR'] ?? '').trim()
+  const baseOutDir = dir
+    ? dir
+    : path.join(process.cwd(), 'recordings', 'phone', 'vosk-tx')
+
+  fs.mkdirSync(baseOutDir, { recursive: true })
+
+  const stamp = new Date().toISOString().replace(/[:.]/g, '-')
+  const safeCallId = sanitizeForFileName(callId)
+  const outDir = path.join(baseOutDir, `${stamp}-${safeCallId}`)
+  fs.mkdirSync(outDir, { recursive: true })
+
+  // eslint-disable-next-line no-console
+  console.log(`[SIP->VOSK] dumping tx chunks callId=${callId} dir=${outDir}`)
+
+  return { outDir, counter: 0, callId }
+}
+
+function dumpVoskTxChunk(
+  dump: VoskTxChunkDump,
+  kind: 'timestamp' | 'audio-mulaw8k',
+  data: Buffer,
+  meta: Record<string, unknown> = {},
+): void {
+  dump.counter++
+  const idx = String(dump.counter).padStart(6, '0')
+  const fileBase = path.join(dump.outDir, `${idx}-${kind}`)
+
+  try {
+    fs.writeFileSync(`${fileBase}.bin`, data)
+    fs.writeFileSync(
+      `${fileBase}.json`,
+      JSON.stringify(
+        {
+          kind,
+          callId: dump.callId,
+          bytes: data.length,
+          ...meta,
+        },
+        null,
+        2,
+      ),
+      'utf8',
+    )
+  } catch (e) {
+    // eslint-disable-next-line no-console
+    console.warn('[SIP->VOSK] tx chunk dump failed', e)
+  }
+}
 
 function dumpIncomingWsMessage(data: WebSocket.RawData, isBinary: boolean) {
   if (!rawWsDump) return
@@ -163,11 +225,26 @@ function sendAudioToVosk(session: CallSession, pcm16le8k: Buffer): void {
     const chunk = mulaw.subarray(off, off + chunkBytes)
     if (!chunk.length) break
     if (includeTimestamp) {
-      session.voskWs.send(to13DigitMsString(session.voskTimestampMs))
+      // Send timestamp as a binary WS frame too (ASCII digits in a Buffer).
+      const tsStr = to13DigitMsString(session.voskTimestampMs)
+      const tsBuf = Buffer.from(tsStr, 'utf8')
+      if (session.voskTxDump) {
+        dumpVoskTxChunk(session.voskTxDump, 'timestamp', tsBuf, {
+          timestampMs: session.voskTimestampMs,
+          timestampStr: tsStr,
+        })
+      }
+      session.voskWs.send(tsBuf, { binary: true })
       // μ-law @ 8kHz: 1 byte == 1 sample
       session.voskTimestampMs += (chunk.length * 1000) / 8000
     }
-    session.voskWs.send(chunk)
+    if (session.voskTxDump) {
+      dumpVoskTxChunk(session.voskTxDump, 'audio-mulaw8k', chunk, {
+        chunkOffset: off,
+        chunkBytes: chunk.length,
+      })
+    }
+    session.voskWs.send(chunk, { binary: true })
   }
 }
 
@@ -445,6 +522,7 @@ function ensureSession(
     voskOpen: false,
     pendingAudio: [],
     voskTimestampMs: 0,
+    voskTxDump: openVoskTxChunkDump(callId),
     rxDump: openRxDump(callId),
     rxPcmDump: openRxPcmDump(callId),
     playback: null,
