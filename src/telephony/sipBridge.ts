@@ -17,6 +17,20 @@ type WavDump = {
   channels: number
 }
 
+type RawDump = {
+  outDir: string
+  counter: number
+}
+
+type PcmDump = {
+  fd: number
+  filePath: string
+  dataBytes: number
+  sampleRateHz: number
+  channels: number
+  bitsPerSample: number
+}
+
 type PlaybackState = {
   timer: NodeJS.Timeout | null
   cancelled: boolean
@@ -32,8 +46,53 @@ type CallSession = {
   pendingAudio: Buffer[]
 
   rxDump: WavDump | null
+  rxPcmDump: PcmDump | null
 
   playback: PlaybackState | null
+}
+
+const rawWsDump: RawDump | null = (() => {
+  if (!envFlag('SIP_DUMP_WS_MESSAGES', false)) return null
+
+  const dir = (process.env['SIP_DUMP_WS_MESSAGES_DIR'] ?? '').trim()
+  const outDir = dir
+    ? dir
+    : path.join(process.cwd(), 'recordings', 'phone', 'ws')
+  fs.mkdirSync(outDir, { recursive: true })
+  // eslint-disable-next-line no-console
+  console.log(`[SIP] dumping raw WS messages dir=${outDir}`)
+  return { outDir, counter: 0 }
+})()
+
+function dumpIncomingWsMessage(data: WebSocket.RawData, isBinary: boolean) {
+  if (!rawWsDump) return
+
+  rawWsDump.counter++
+  const stamp = new Date().toISOString().replace(/[:.]/g, '-')
+  const idx = String(rawWsDump.counter).padStart(6, '0')
+  const kind = isBinary ? 'bin' : 'txt'
+
+  const fileBase = path.join(rawWsDump.outDir, `wsmsg-${stamp}-${idx}`)
+  const metaPath = `${fileBase}.json`
+  const dataPath = `${fileBase}.${kind}`
+
+  try {
+    const buf = Buffer.isBuffer(data) ? data : Buffer.from(data as ArrayBuffer)
+    const meta = {
+      isBinary,
+      bytes: buf.length,
+      magic: buf.subarray(0, 16).toString('ascii'),
+    }
+    fs.writeFileSync(metaPath, JSON.stringify(meta, null, 2), 'utf8')
+    if (isBinary) {
+      fs.writeFileSync(dataPath, buf)
+    } else {
+      fs.writeFileSync(dataPath, buf.toString('utf8'))
+    }
+  } catch (e) {
+    // eslint-disable-next-line no-console
+    console.warn('[SIP] raw ws dump failed', e)
+  }
 }
 
 // function to13DigitMsString(ms: number): string {
@@ -166,6 +225,46 @@ function openRxDump(callId: string): WavDump | null {
   console.log(`[SIP] dumping rx audio callId=${callId} file=${filePath}`)
 
   return { fd, filePath, dataBytes: 0, sampleRateHz, channels }
+}
+
+function openRxPcmDump(callId: string): PcmDump | null {
+  if (!envFlag('SIP_DUMP_RX_PCM', false)) return null
+
+  const sampleRateHz = 8000
+  const channels = 1
+  const bitsPerSample = 16
+
+  const dir = (process.env['SIP_DUMP_RX_PCM_DIR'] ?? '').trim()
+  const outDir = dir ? dir : path.join(process.cwd(), 'recordings', 'phone')
+  fs.mkdirSync(outDir, { recursive: true })
+
+  const stamp = new Date().toISOString().replace(/[:.]/g, '-')
+  const safeCallId = sanitizeForFileName(callId)
+  const filePath = path.join(outDir, `rx-${stamp}-${safeCallId}.pcm16le`)
+
+  const fd = fs.openSync(filePath, 'w')
+  // eslint-disable-next-line no-console
+  console.log(`[SIP] dumping rx pcm callId=${callId} file=${filePath}`)
+
+  return { fd, filePath, dataBytes: 0, sampleRateHz, channels, bitsPerSample }
+}
+
+function appendRxPcmDump(dump: PcmDump, pcm16le: Buffer): void {
+  if (!pcm16le.length) return
+  fs.writeSync(dump.fd, pcm16le)
+  dump.dataBytes += pcm16le.length
+}
+
+function closeRxPcmDump(dump: PcmDump): void {
+  try {
+    fs.closeSync(dump.fd)
+  } catch {
+    // ignore
+  }
+  // eslint-disable-next-line no-console
+  console.log(
+    `[SIP] dumped rx pcm file=${dump.filePath} bytes=${dump.dataBytes} format=pcm${dump.bitsPerSample}le ${dump.sampleRateHz}Hz ch=${dump.channels}`,
+  )
 }
 
 function appendRxDump(dump: WavDump, pcm16le: Buffer): void {
@@ -341,6 +440,7 @@ function ensureSession(
     voskOpen: false,
     pendingAudio: [],
     rxDump: openRxDump(callId),
+    rxPcmDump: openRxPcmDump(callId),
     playback: null,
   }
 
@@ -383,6 +483,15 @@ function closeSession(
       // ignore
     }
     s.rxDump = null
+  }
+
+  if (s.rxPcmDump) {
+    try {
+      closeRxPcmDump(s.rxPcmDump)
+    } catch {
+      // ignore
+    }
+    s.rxPcmDump = null
   }
 
   sessions.delete(callId)
@@ -429,6 +538,8 @@ export function startSipClientBridge(): void {
     ws.on('message', async (data, isBinary) => {
       if (!ws || ws.readyState !== WebSocket.OPEN) return
 
+      dumpIncomingWsMessage(data, isBinary)
+
       const dataLen = Buffer.isBuffer(data)
         ? data.length
         : (data as ArrayBuffer).byteLength
@@ -466,6 +577,15 @@ export function startSipClientBridge(): void {
         } catch (e) {
           // eslint-disable-next-line no-console
           console.warn(`[SIP] rx dump write failed callId=${session.callId}`, e)
+        }
+      }
+
+      if (session.rxPcmDump) {
+        try {
+          appendRxPcmDump(session.rxPcmDump, frame.audioPcm16le)
+        } catch (e) {
+          // eslint-disable-next-line no-console
+          console.warn(`[SIP] rx pcm dump write failed callId=${session.callId}`, e)
         }
       }
 
