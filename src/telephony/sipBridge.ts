@@ -98,15 +98,16 @@ function sendAudioToVosk(session: CallSession, pcm16le8k: Buffer): void {
       10,
     ) || 160,
   )
-  const includeTimestamp = envFlag('VOSK_SEND_TIMESTAMP', true)
+  console.log({ chunkBytes })
+  // const includeTimestamp = envFlag('VOSK_SEND_TIMESTAMP', true)
 
   const mulaw = pcm16leToMulaw8k(pcm16le8k)
   for (let off = 0; off < mulaw.length; off += chunkBytes) {
     const chunk = mulaw.subarray(off, off + chunkBytes)
     if (!chunk.length) break
-    if (includeTimestamp) {
-      session.voskWs.send(to13DigitMsString(Date.now()))
-    }
+    // if (includeTimestamp) {
+    //   session.voskWs.send(to13DigitMsString(Date.now()))
+    // }
     session.voskWs.send(chunk)
   }
 }
@@ -432,6 +433,7 @@ export function startSipClientBridge(): void {
     ws.on('message', async (data, isBinary) => {
       if (!ws || ws.readyState !== WebSocket.OPEN) return
 
+      console.log(`[SIP] received message isBinary=${isBinary} length=${data}`)
       if (!isBinary) {
         const str = data.toString('utf8')
         try {
