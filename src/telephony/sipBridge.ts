@@ -48,6 +48,9 @@ type CallSession = {
   createdAt: number
   lastTranscript: string
 
+  welcomeStarted: boolean
+  welcomePlayed: boolean
+
   // We reuse Visitor.ipAddress as the stable key for history.
   // For phone calls we store the phone number (or callId) here.
   visitorIpAddress: string
@@ -66,6 +69,31 @@ type CallSession = {
   rxPcmDump: PcmDump | null
 
   playback: PlaybackState | null
+}
+
+function maybePlayWelcomeText(ws: WebSocket, session: CallSession): void {
+  if (session.welcomeStarted) return
+
+  const text = (process.env['SIP_WELCOME_TEXT'] ?? '').trim()
+  if (!text) return
+
+  session.welcomeStarted = true
+
+  void (async () => {
+    try {
+      const pcm16 = await ttsToPcm16le8k(text)
+      if (!pcm16.length) return
+      if (ws.readyState !== WebSocket.OPEN) return
+
+      // eslint-disable-next-line no-console
+      console.log(`[SIP] welcome playback start callId=${session.callId}`)
+      startPlayback(ws, session, pcm16)
+      session.welcomePlayed = true
+    } catch (e) {
+      // eslint-disable-next-line no-console
+      console.error('[SIP] welcome TTS failed', e)
+    }
+  })()
 }
 
 function normalizePhoneIdForVisitor(callId: string): string {
@@ -546,6 +574,9 @@ function ensureSession(
     callId,
     createdAt: Date.now(),
     lastTranscript: '',
+
+    welcomeStarted: false,
+    welcomePlayed: false,
     visitorIpAddress,
     voskWs,
     voskOpen: false,
@@ -679,6 +710,7 @@ export function startSipClientBridge(): void {
       if (!frame) return
 
       const session = ensureSession(sessions, frame.callId)
+      maybePlayWelcomeText(ws, session)
 
       if (session.rxDump) {
         try {
