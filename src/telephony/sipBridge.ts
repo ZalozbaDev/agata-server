@@ -40,6 +40,77 @@ type CallSession = {
   playback: PlaybackState | null
 }
 
+function to13DigitMsString(ms: number): string {
+  const s = Math.max(0, Math.floor(ms)).toString()
+  return s.padStart(13, '0').slice(-13)
+}
+
+function pcm16leToMulaw8k(pcm16le: Buffer): Buffer {
+  // G.711 μ-law encode (8-bit), expects 8kHz mono PCM16LE input
+  const BIAS = 0x84
+  const CLIP = 32635
+  const segEnd = [0xff, 0x1ff, 0x3ff, 0x7ff, 0xfff, 0x1fff, 0x3fff, 0x7fff]
+
+  const outLen = Math.floor(pcm16le.length / 2)
+  const out = Buffer.allocUnsafe(outLen)
+
+  const searchSegment = (val: number): number => {
+    for (let i = 0; i < 8; i++) {
+      if (val <= segEnd[i]!) return i
+    }
+    return 7
+  }
+
+  const linearToMuLawByte = (sample: number): number => {
+    let mask = 0xff
+    let pcm = sample
+    if (pcm < 0) {
+      pcm = -pcm
+      mask = 0x7f
+    }
+
+    if (pcm > CLIP) pcm = CLIP
+    pcm += BIAS
+
+    const seg = searchSegment(pcm)
+    const uval = (seg << 4) | ((pcm >> (seg + 3)) & 0x0f)
+    return (uval ^ mask) & 0xff
+  }
+
+  for (let i = 0; i < outLen; i++) {
+    const s = pcm16le.readInt16LE(i * 2)
+    out[i] = linearToMuLawByte(s)
+  }
+
+  return out
+}
+
+function sendAudioToVosk(session: CallSession, pcm16le8k: Buffer): void {
+  if (!pcm16le8k.length) return
+  if (!session.voskOpen) return
+  if (session.voskWs.readyState !== WebSocket.OPEN) return
+
+  // Match the legacy Twilio flow: send small raw audio chunks and (optionally) a 13-digit timestamp message.
+  const chunkBytes = Math.max(
+    1,
+    Number.parseInt(
+      (process.env['VOSK_AUDIO_CHUNK_BYTES'] ?? '160').trim(),
+      10,
+    ) || 160,
+  )
+  const includeTimestamp = envFlag('VOSK_SEND_TIMESTAMP', true)
+
+  const mulaw = pcm16leToMulaw8k(pcm16le8k)
+  for (let off = 0; off < mulaw.length; off += chunkBytes) {
+    const chunk = mulaw.subarray(off, off + chunkBytes)
+    if (!chunk.length) break
+    if (includeTimestamp) {
+      session.voskWs.send(to13DigitMsString(Date.now()))
+    }
+    session.voskWs.send(chunk)
+  }
+}
+
 function envFlag(name: string, def = false): boolean {
   const v = (process.env[name] ?? '').trim().toLowerCase()
   if (!v) return def
@@ -239,21 +310,13 @@ function createVoskWs(callId: string): WebSocket {
   if (!voskBaseUrl) {
     throw new Error('VOSK_SERVER_URL fehlt')
   }
-  const voskUrl = `${voskBaseUrl.replace(/\/$/, '')}/vosk`
-
-  const ws = new WebSocket(voskUrl)
+  // Keep identical to the legacy Twilio bridge: use VOSK_SERVER_URL as-is.
+  const ws = new WebSocket(voskBaseUrl)
   ws.binaryType = 'arraybuffer'
 
   ws.on('open', () => {
-    const targetRate = 8000
-    try {
-      ws.send(`sample_rate=${targetRate},buffer_size=${20}`)
-      // eslint-disable-next-line no-console
-      console.log(`[SIP->VOSK] open callId=${callId} sampleRate=${targetRate}`)
-    } catch (e) {
-      // eslint-disable-next-line no-console
-      console.warn(`[SIP->VOSK] config failed callId=${callId}`, e)
-    }
+    // eslint-disable-next-line no-console
+    console.log(`[SIP->VOSK] open callId=${callId}`)
   })
 
   ws.on('error', err => {
@@ -289,7 +352,7 @@ function ensureSession(
     // flush pending audio
     for (const a of s.pendingAudio) {
       try {
-        voskWs.send(a)
+        sendAudioToVosk(s, a)
       } catch {
         break
       }
@@ -398,7 +461,7 @@ export function startSipClientBridge(): void {
       }
 
       if (session.voskOpen && session.voskWs.readyState === WebSocket.OPEN) {
-        session.voskWs.send(frame.audioPcm16le)
+        sendAudioToVosk(session, frame.audioPcm16le)
       } else {
         session.pendingAudio.push(frame.audioPcm16le)
         // keep pending bounded (~2s @ 8kHz, 16-bit): 8000*2*2 = 32000 bytes
