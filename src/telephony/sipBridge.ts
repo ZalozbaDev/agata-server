@@ -585,7 +585,10 @@ export function startSipClientBridge(): void {
           appendRxPcmDump(session.rxPcmDump, frame.audioPcm16le)
         } catch (e) {
           // eslint-disable-next-line no-console
-          console.warn(`[SIP] rx pcm dump write failed callId=${session.callId}`, e)
+          console.warn(
+            `[SIP] rx pcm dump write failed callId=${session.callId}`,
+            e,
+          )
         }
       }
 
