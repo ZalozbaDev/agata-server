@@ -8,7 +8,6 @@ import { chatService } from '../services/chatService'
 import { generateBamborakAudioFromText } from '../services/bamborakService'
 import {
   decodeSipAudioFrame,
-  encodeSipAudioFrame,
   type SipAudioFrame,
 } from './sipProtocol'
 import { float32ToPcm16le, mixDownToMono, resampleLinear } from './audio'
@@ -98,7 +97,6 @@ function sendAudioToVosk(session: CallSession, pcm16le8k: Buffer): void {
       10,
     ) || 160,
   )
-  console.log({ chunkBytes })
   // const includeTimestamp = envFlag('VOSK_SEND_TIMESTAMP', true)
 
   const mulaw = pcm16leToMulaw8k(pcm16le8k)
@@ -299,7 +297,8 @@ function startPlayback(
       chunk = padded
     }
 
-    ws.send(encodeSipAudioFrame(session.callId, chunk))
+    // Send raw audio only (no custom AGTA header)
+    ws.send(chunk)
     st.timer = setTimeout(sendNext, frameMs)
   }
 
@@ -433,7 +432,16 @@ export function startSipClientBridge(): void {
     ws.on('message', async (data, isBinary) => {
       if (!ws || ws.readyState !== WebSocket.OPEN) return
 
-      console.log(`[SIP] received message isBinary=${isBinary} length=${data}`)
+      const dataLen = Buffer.isBuffer(data)
+        ? data.length
+        : (data as ArrayBuffer).byteLength
+      const magic = Buffer.isBuffer(data)
+        ? data.subarray(0, 4).toString('ascii')
+        : Buffer.from(data as ArrayBuffer).subarray(0, 4).toString('ascii')
+      // eslint-disable-next-line no-console
+      console.log(
+        `[SIP] received message isBinary=${isBinary} bytes=${dataLen} magic=${JSON.stringify(magic)}`,
+      )
       if (!isBinary) {
         const str = data.toString('utf8')
         try {
