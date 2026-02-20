@@ -51,6 +51,9 @@ type CallSession = {
   welcomeStarted: boolean
   welcomePlayed: boolean
 
+  ignoredWhilePlaybackCount: number
+  ignoredWhilePlaybackLastLogAt: number
+
   // We reuse Visitor.ipAddress as the stable key for history.
   // For phone calls we store the phone number (or callId) here.
   visitorIpAddress: string
@@ -308,6 +311,28 @@ function envFlag(name: string, def = false): boolean {
 
 function sanitizeForFileName(input: string): string {
   return input.replace(/[^a-zA-Z0-9._-]+/g, '_').slice(0, 80)
+}
+
+function normalizeSpeechText(input: string): string {
+  // Lowercase + strip punctuation; keep unicode letters/numbers.
+  return input
+    .toLowerCase()
+    .normalize('NFKD')
+    .replace(/[^\p{L}\p{N}]+/gu, ' ')
+    .replace(/\s+/g, ' ')
+    .trim()
+}
+
+function isPlaybackInterruptPhraseSpoken(transcript: string): boolean {
+  const raw = (process.env['SIP_PLAYBACK_INTERRUPT_WORD'] ?? 'Dzakuju').trim()
+  if (!raw) return false
+
+  const t = normalizeSpeechText(transcript)
+  const w = normalizeSpeechText(raw)
+  if (!t || !w) return false
+
+  // Whole-word/whole-phrase match against space-padded normalized string.
+  return (` ${t} `).includes(` ${w} `)
 }
 
 function wavHeaderPcm16le(
@@ -577,6 +602,9 @@ function ensureSession(
 
     welcomeStarted: false,
     welcomePlayed: false,
+
+    ignoredWhilePlaybackCount: 0,
+    ignoredWhilePlaybackLastLogAt: 0,
     visitorIpAddress,
     voskWs,
     voskOpen: false,
@@ -770,6 +798,28 @@ export function startSipClientBridge(): void {
         // Skip Vosk keepalive/noise messages like {"partial":"","listen":"true"}
         if (!plainText) return
 
+        const playbackActive = !!session.playback
+        const interruptSpoken = playbackActive
+          ? isPlaybackInterruptPhraseSpoken(plainText)
+          : false
+
+        if (playbackActive && !interruptSpoken) {
+          // While we are speaking, ignore user input unless the interrupt word is spoken.
+          session.ignoredWhilePlaybackCount++
+          const now = Date.now()
+          if (
+            session.ignoredWhilePlaybackLastLogAt === 0 ||
+            now - session.ignoredWhilePlaybackLastLogAt > 1500
+          ) {
+            session.ignoredWhilePlaybackLastLogAt = now
+            // eslint-disable-next-line no-console
+            console.log(
+              `[SIP] ignore transcript during playback callId=${session.callId} count=${session.ignoredWhilePlaybackCount} text=${previewForLog(plainText, 180)}`,
+            )
+          }
+          return
+        }
+
         // eslint-disable-next-line no-console
         console.log(
           `[VOSK->SIP] callId=${session.callId} raw=${previewForLog(s)}`,
@@ -784,10 +834,16 @@ export function startSipClientBridge(): void {
           return
         if (/^--\s*--$/.test(plainText) || plainText === '--') return
 
+        if (interruptSpoken) {
+          // eslint-disable-next-line no-console
+          console.log(
+            `[SIP] interrupt word spoken; cancelling playback callId=${session.callId} word=${JSON.stringify((process.env['SIP_PLAYBACK_INTERRUPT_WORD'] ?? 'Dzakuju').trim() || 'Dzakuju')}`,
+          )
+          cancelPlayback(session)
+        }
+
         if (plainText === session.lastTranscript) return
         session.lastTranscript = plainText
-
-        cancelPlayback(session)
 
         let replyText: string | null = null
         try {
