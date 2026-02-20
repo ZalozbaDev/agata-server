@@ -6,6 +6,7 @@ import * as fs from 'node:fs'
 import * as path from 'node:path'
 import { chatService } from '../services/chatService'
 import { generateBamborakAudioFromText } from '../services/bamborakService'
+import { Visitor } from '../models/Visitor'
 import { decodeSipAudioFrame, type SipAudioFrame } from './sipProtocol'
 import { float32ToPcm16le, mixDownToMono, resampleLinear } from './audio'
 
@@ -47,6 +48,10 @@ type CallSession = {
   createdAt: number
   lastTranscript: string
 
+  // We reuse Visitor.ipAddress as the stable key for history.
+  // For phone calls we store the phone number (or callId) here.
+  visitorIpAddress: string
+
   voskWs: WebSocket
   voskOpen: boolean
   pendingAudio: Buffer[]
@@ -61,6 +66,25 @@ type CallSession = {
   rxPcmDump: PcmDump | null
 
   playback: PlaybackState | null
+}
+
+function normalizePhoneIdForVisitor(callId: string): string {
+  const raw = (callId ?? '').trim()
+  if (!raw) return ''
+  // Keep digits and an optional leading +; strip separators.
+  const cleaned = raw.replace(/[^\d+]/g, '')
+  return cleaned || raw
+}
+
+async function ensurePhoneVisitor(ipAddress: string): Promise<void> {
+  const key = (ipAddress ?? '').trim()
+  if (!key) return
+
+  await Visitor.findOneAndUpdate(
+    { ipAddress: key },
+    { $push: { lastVisitedAt: new Date() } },
+    { new: true, upsert: true, setDefaultsOnInsert: true },
+  )
 }
 
 function to13DigitMsString(ms: number): string {
@@ -516,10 +540,13 @@ function ensureSession(
 
   const voskWs = createVoskWs(callId)
 
+  const visitorIpAddress = normalizePhoneIdForVisitor(callId)
+
   const s: CallSession = {
     callId,
     createdAt: Date.now(),
     lastTranscript: '',
+    visitorIpAddress,
     voskWs,
     voskOpen: false,
     pendingAudio: [],
@@ -529,6 +556,14 @@ function ensureSession(
     rxPcmDump: openRxPcmDump(callId),
     playback: null,
   }
+
+  ensurePhoneVisitor(visitorIpAddress).catch(e => {
+    // eslint-disable-next-line no-console
+    console.warn(
+      `[SIP] failed to ensure phone visitor ipAddress=${visitorIpAddress}`,
+      e,
+    )
+  })
 
   voskWs.on('open', () => {
     s.voskOpen = true
@@ -726,7 +761,8 @@ export function startSipClientBridge(): void {
         try {
           const result = await chatService.handleChat({
             message: plainText,
-            persist: false,
+            persist: true,
+            ipAddress: session.visitorIpAddress,
             isPhoneCall: true,
           })
           replyText = result.message || null
