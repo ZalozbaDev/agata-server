@@ -280,7 +280,6 @@ Du bist ein Beispiel dafür, wie Technologie und sorbische Kultur zusammenpassen
       responseContent = openaiResponse.choices[0]?.message?.content || ''
     }
 
-    console.log({ usedAgent, usedRag })
     console.log('Final response content:', responseContent)
 
     const translatedAnswer = await translateDeToHsb(responseContent)
