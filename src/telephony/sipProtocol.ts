@@ -38,9 +38,7 @@ export function decodeSipAudioFrame(buf: Buffer): SipAudioFrame | null {
   const debug = envFlag('SIP_PROTOCOL_DEBUG', false)
   if (debug) {
     // eslint-disable-next-line no-console
-    console.log(
-      `[SIP/PROTO] rx bytes=${buf.length} magic=${JSON.stringify(buf.subarray(0, 4).toString('ascii'))} hex=${hexPreview(buf)}`,
-    )
+    console.log(`[SIP/PROTO] rx bytes=${buf.length}  hex=${hexPreview(buf)}`)
   }
 
   if (buf.length < 7) {

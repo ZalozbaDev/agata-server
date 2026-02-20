@@ -546,18 +546,6 @@ export function startSipClientBridge(): void {
 
       dumpIncomingWsMessage(data, isBinary)
 
-      const dataLen = Buffer.isBuffer(data)
-        ? data.length
-        : (data as ArrayBuffer).byteLength
-      const magic = Buffer.isBuffer(data)
-        ? data.subarray(0, 4).toString('ascii')
-        : Buffer.from(data as ArrayBuffer)
-            .subarray(0, 4)
-            .toString('ascii')
-      // eslint-disable-next-line no-console
-      console.log(
-        `[SIP] received message isBinary=${isBinary} bytes=${dataLen} magic=${JSON.stringify(magic)}`,
-      )
       if (!isBinary) {
         const str = data.toString('utf8')
         try {
