@@ -40,10 +40,10 @@ type CallSession = {
   playback: PlaybackState | null
 }
 
-function to13DigitMsString(ms: number): string {
-  const s = Math.max(0, Math.floor(ms)).toString()
-  return s.padStart(13, '0').slice(-13)
-}
+// function to13DigitMsString(ms: number): string {
+//   const s = Math.max(0, Math.floor(ms)).toString()
+//   return s.padStart(13, '0').slice(-13)
+// }
 
 function pcm16leToMulaw8k(pcm16le: Buffer): Buffer {
   // G.711 μ-law encode (8-bit), expects 8kHz mono PCM16LE input
