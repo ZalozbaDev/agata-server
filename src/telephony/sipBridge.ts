@@ -759,6 +759,8 @@ export function startSipClientBridge(): void {
 
         let replyText: string | null = null
         try {
+          // Ensure the Visitor exists for this phone identity before we fetch/persist history.
+          await ensurePhoneVisitor(session.visitorIpAddress)
           const result = await chatService.handleChat({
             message: plainText,
             persist: true,

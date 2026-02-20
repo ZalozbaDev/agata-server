@@ -36,6 +36,19 @@ export type ChatServiceInput = {
   isPhoneCall?: boolean
 }
 
+function formatHistoryForTextPrompt(
+  history: { role: 'assistant' | 'user'; content: string }[],
+): string {
+  if (!history.length) return ''
+  return history
+    .map(h => {
+      const who = h.role === 'user' ? 'User' : 'Assistant'
+      return `${who}: ${String(h.content ?? '').trim()}`
+    })
+    .filter(Boolean)
+    .join('\n')
+}
+
 async function translateHsbToDe(text: string): Promise<string> {
   if (process.env['SOTRA_LOCAL_URL'] === undefined) {
     const translated = await axios.post(
@@ -179,10 +192,22 @@ export const chatService = {
       ? 'TELEFONMODUS (TTS): Antworte sehr kurz (max. 2 kurze Sätze). Keine Listen, keine langen Erklärungen. Wenn Infos fehlen, stelle genau eine kurze Rückfrage.'
       : ''
 
+    const history = await buildHistory(ipAddress)
+    const historyText = formatHistoryForTextPrompt(history)
+
+    // Used for agents-style calls (single text prompt). Include history explicitly.
+    const agentInput = [
+      phoneCallInstruction,
+      historyText ? `CHAT HISTORY (latest first):\n${historyText}` : '',
+      translatedInputText || '',
+    ]
+      .filter(Boolean)
+      .join('\n\n')
+
+    // Used for chat.completions (multi-message format). History is passed as messages below.
     const openaiInput = [phoneCallInstruction, translatedInputText || '']
       .filter(Boolean)
       .join('\n\n')
-    const history = await buildHistory(ipAddress)
 
     let responseContent = ''
     let usedAgent = false
@@ -219,7 +244,7 @@ export const chatService = {
 
     if (!usedRag) {
       try {
-        const agentResult = await run(triageAgent, openaiInput)
+        const agentResult = await run(triageAgent, agentInput)
         const messageItem = agentResult.output.find(a => a.type === 'message')
         if (messageItem && (messageItem as any).content[0]?.text) {
           responseContent = (messageItem as any).content[0].text
