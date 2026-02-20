@@ -6,10 +6,7 @@ import * as fs from 'node:fs'
 import * as path from 'node:path'
 import { chatService } from '../services/chatService'
 import { generateBamborakAudioFromText } from '../services/bamborakService'
-import {
-  decodeSipAudioFrame,
-  type SipAudioFrame,
-} from './sipProtocol'
+import { decodeSipAudioFrame, type SipAudioFrame } from './sipProtocol'
 import { float32ToPcm16le, mixDownToMono, resampleLinear } from './audio'
 
 type WavDump = {
@@ -437,7 +434,9 @@ export function startSipClientBridge(): void {
         : (data as ArrayBuffer).byteLength
       const magic = Buffer.isBuffer(data)
         ? data.subarray(0, 4).toString('ascii')
-        : Buffer.from(data as ArrayBuffer).subarray(0, 4).toString('ascii')
+        : Buffer.from(data as ArrayBuffer)
+            .subarray(0, 4)
+            .toString('ascii')
       // eslint-disable-next-line no-console
       console.log(
         `[SIP] received message isBinary=${isBinary} bytes=${dataLen} magic=${JSON.stringify(magic)}`,
