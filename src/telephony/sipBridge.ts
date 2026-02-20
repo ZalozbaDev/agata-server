@@ -284,10 +284,12 @@ function wavHeaderPcm16le(
   return buf
 }
 
+const sampleRateHz = 8000
+const BufferSize = 160 // 20ms of 8kHz mono audio
+
 function openRxDump(callId: string): WavDump | null {
   if (!envFlag('SIP_DUMP_RX_AUDIO', false)) return null
 
-  const sampleRateHz = 8000
   const channels = 1
 
   const dir = (process.env['SIP_DUMP_RX_AUDIO_DIR'] ?? '').trim()
@@ -312,7 +314,6 @@ function openRxDump(callId: string): WavDump | null {
 function openRxPcmDump(callId: string): PcmDump | null {
   if (!envFlag('SIP_DUMP_RX_PCM', false)) return null
 
-  const sampleRateHz = 8000
   const channels = 1
   const bitsPerSample = 16
 
@@ -494,6 +495,7 @@ function createVoskWs(callId: string): WebSocket {
 
   ws.on('open', () => {
     // eslint-disable-next-line no-console
+    ws.send(`sample_rate=${sampleRateHz},buffer_size=${BufferSize}`)
     console.log(`[SIP->VOSK] open callId=${callId}`)
   })
 
