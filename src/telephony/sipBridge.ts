@@ -328,11 +328,28 @@ function isPlaybackInterruptPhraseSpoken(transcript: string): boolean {
   if (!raw) return false
 
   const t = normalizeSpeechText(transcript)
-  const w = normalizeSpeechText(raw)
-  if (!t || !w) return false
+  if (!t) return false
 
-  // Whole-word/whole-phrase match against space-padded normalized string.
-  return (` ${t} `).includes(` ${w} `)
+  const candidates = raw
+    .split(/[,|;]/g)
+    .map(s => normalizeSpeechText(s))
+    .filter(Boolean)
+
+  if (!candidates.length) return false
+
+  const paddedT = ` ${t} `
+  const compactT = t.replace(/\s+/g, '')
+
+  for (const w of candidates) {
+    // Whole-word/whole-phrase match against space-padded normalized string.
+    if (paddedT.includes(` ${w} `)) return true
+
+    // Also match ignoring spaces (Vosk sometimes inserts/omits word boundaries).
+    const compactW = w.replace(/\s+/g, '')
+    if (compactW && compactT.includes(compactW)) return true
+  }
+
+  return false
 }
 
 function wavHeaderPcm16le(
