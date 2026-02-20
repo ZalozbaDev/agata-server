@@ -45,10 +45,18 @@ type CallSession = {
   voskOpen: boolean
   pendingAudio: Buffer[]
 
+  // Twilio-style timestamp stream to Vosk (13-digit ms string messages)
+  voskTimestampMs: number
+
   rxDump: WavDump | null
   rxPcmDump: PcmDump | null
 
   playback: PlaybackState | null
+}
+
+function to13DigitMsString(ms: number): string {
+  const s = Math.max(0, Math.floor(ms)).toString()
+  return s.padStart(13, '0').slice(-13)
 }
 
 const rawWsDump: RawDump | null = (() => {
@@ -94,11 +102,6 @@ function dumpIncomingWsMessage(data: WebSocket.RawData, isBinary: boolean) {
     console.warn('[SIP] raw ws dump failed', e)
   }
 }
-
-// function to13DigitMsString(ms: number): string {
-//   const s = Math.max(0, Math.floor(ms)).toString()
-//   return s.padStart(13, '0').slice(-13)
-// }
 
 function pcm16leToMulaw8k(pcm16le: Buffer): Buffer {
   // G.711 μ-law encode (8-bit), expects 8kHz mono PCM16LE input
@@ -153,15 +156,17 @@ function sendAudioToVosk(session: CallSession, pcm16le8k: Buffer): void {
       10,
     ) || 160,
   )
-  // const includeTimestamp = envFlag('VOSK_SEND_TIMESTAMP', true)
+  const includeTimestamp = envFlag('VOSK_SEND_TIMESTAMP', true)
 
   const mulaw = pcm16leToMulaw8k(pcm16le8k)
   for (let off = 0; off < mulaw.length; off += chunkBytes) {
     const chunk = mulaw.subarray(off, off + chunkBytes)
     if (!chunk.length) break
-    // if (includeTimestamp) {
-    //   session.voskWs.send(to13DigitMsString(Date.now()))
-    // }
+    if (includeTimestamp) {
+      session.voskWs.send(to13DigitMsString(session.voskTimestampMs))
+      // μ-law @ 8kHz: 1 byte == 1 sample
+      session.voskTimestampMs += (chunk.length * 1000) / 8000
+    }
     session.voskWs.send(chunk)
   }
 }
@@ -439,6 +444,7 @@ function ensureSession(
     voskWs,
     voskOpen: false,
     pendingAudio: [],
+    voskTimestampMs: 0,
     rxDump: openRxDump(callId),
     rxPcmDump: openRxPcmDump(callId),
     playback: null,
