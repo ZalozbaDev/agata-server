@@ -816,9 +816,7 @@ export function startSipClientBridge(): void {
         if (!plainText) return
 
         const playbackActive = !!session.playback
-        const interruptSpoken = playbackActive
-          ? isPlaybackInterruptPhraseSpoken(plainText)
-          : false
+        const interruptSpoken = isPlaybackInterruptPhraseSpoken(plainText)
 
         if (playbackActive && !interruptSpoken) {
           // While we are speaking, ignore user input unless the interrupt word is spoken.
@@ -852,11 +850,21 @@ export function startSipClientBridge(): void {
         if (/^--\s*--$/.test(plainText) || plainText === '--') return
 
         if (interruptSpoken) {
+          const configured =
+            (process.env['SIP_PLAYBACK_INTERRUPT_WORD'] ?? 'Dźakuju').trim() ||
+            'Dźakuju'
           // eslint-disable-next-line no-console
           console.log(
-            `[SIP] interrupt word spoken; cancelling playback callId=${session.callId} word=${JSON.stringify((process.env['SIP_PLAYBACK_INTERRUPT_WORD'] ?? 'Dzakuju').trim() || 'Dzakuju')}`,
+            `[SIP] interrupt word detected callId=${session.callId} playbackActive=${playbackActive} configured=${JSON.stringify(configured)} transcript=${previewForLog(plainText, 180)}`,
           )
-          cancelPlayback(session)
+
+          if (playbackActive) {
+            // eslint-disable-next-line no-console
+            console.log(
+              `[SIP] interrupt -> cancelling playback callId=${session.callId}`,
+            )
+            cancelPlayback(session)
+          }
         }
 
         if (plainText === session.lastTranscript) return
