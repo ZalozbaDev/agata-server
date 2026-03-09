@@ -9,6 +9,7 @@ import { generateBamborakAudioFromText } from '../services/bamborakService'
 import { Visitor } from '../models/Visitor'
 import { decodeSipAudioFrame, type SipAudioFrame } from './sipProtocol'
 import { float32ToPcm16le, mixDownToMono, resampleLinear } from './audio'
+import { VoskSendConfigService } from '../lib/vosk-config-service'
 
 type WavDump = {
   fd: number
@@ -588,8 +589,7 @@ function createVoskWs(callId: string): WebSocket {
   ws.binaryType = 'arraybuffer'
 
   ws.on('open', () => {
-    // eslint-disable-next-line no-console
-    ws.send(`sample_rate=${sampleRateHz},buffer_size=${BufferSize}`)
+    VoskSendConfigService.sendConfig(ws, sampleRateHz, BufferSize)
     console.log(`[SIP->VOSK] open callId=${callId}`)
   })
 
@@ -643,6 +643,14 @@ function ensureSession(
 
   voskWs.on('open', () => {
     s.voskOpen = true
+    const chunklen =
+      Number.parseInt(
+        (process.env['VOSK_AUDIO_CHUNK_BYTES'] ?? '160').trim(),
+        10,
+      ) || 160
+    VoskSendConfigService.sendChunkLength(voskWs, chunklen)
+    VoskSendConfigService.sendSampleRate(voskWs, sampleRateHz)
+    VoskSendConfigService.sendSampleFormat(voskWs, 'mulaw8k')
     // flush pending audio
     for (const a of s.pendingAudio) {
       try {
