@@ -11,19 +11,14 @@ export const VoskSendConfigService = {
   ) => {
     webSocket?.send(
       JSON.stringify({
-        sample_rate: sampleRate,
+        config: {
+          sample_rate: sampleRate,
+        },
       }),
     )
     webSocket?.send(
       JSON.stringify({
-        buffer_size: bufferSize,
-      }),
-    )
-  },
-  sendSampleRate: (webSocket: WebSocket | null, sampleRate: number) => {
-    webSocket?.send(
-      JSON.stringify({
-        config: { sample_rate: sampleRate },
+        config: { buffer_size: bufferSize },
       }),
     )
   },
