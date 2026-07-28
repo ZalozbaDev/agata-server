@@ -1,7 +1,10 @@
 import axios, { AxiosRequestConfig } from 'axios'
 import { visemeGeneratorService } from './visemeGenerator'
 
-const BAMBORAK_API_BASE_URL = 'https://bamborakapi.mudrowak.de/api'
+const bamborak_api_base_url = process.env['BAMBORAK_API_BASE_URL']
+if (!bamborak_api_base_url) {
+  throw new Error('Missing BAMBORAK_API_BASE_URL environment variable')
+}
 
 export type BamborakSpeakerId = string | number
 
@@ -22,7 +25,7 @@ export interface BamborakAudioFromTextResult {
 }
 
 export async function fetchBamborakSpeakers(): Promise<unknown> {
-  const response = await axios.get(`${BAMBORAK_API_BASE_URL}/fetch_speakers/`)
+  const response = await axios.get(`${bamborak_api_base_url}/fetch_speakers/`)
   return response.data
 }
 
@@ -34,7 +37,7 @@ export async function generateBamborakAudioFromText(
   const config: AxiosRequestConfig = {
     method: 'post',
     maxBodyLength: Infinity,
-    url: `${BAMBORAK_API_BASE_URL}/tts/`,
+    url: `${bamborak_api_base_url}/tts/`,
     headers: {
       'Content-Type': 'application/json',
     },
