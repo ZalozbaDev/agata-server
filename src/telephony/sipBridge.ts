@@ -42,6 +42,9 @@ type PcmDump = {
 type PlaybackState = {
   timer: NodeJS.Timeout | null
   cancelled: boolean
+  queue: Buffer[]
+  current: Buffer | null
+  currentOffset: number
 }
 
 type CallSession = {
@@ -73,6 +76,7 @@ type CallSession = {
   rxPcmDump: PcmDump | null
 
   playback: PlaybackState | null
+  ttsGenerationId: number
 }
 
 function maybePlayWelcomeText(ws: WebSocket, session: CallSession): void {
@@ -85,13 +89,9 @@ function maybePlayWelcomeText(ws: WebSocket, session: CallSession): void {
 
   void (async () => {
     try {
-      const pcm16 = await ttsToPcm16le8k(text)
-      if (!pcm16.length) return
-      if (ws.readyState !== WebSocket.OPEN) return
-
       // eslint-disable-next-line no-console
       console.log(`[SIP] welcome playback start callId=${session.callId}`)
-      startPlayback(ws, session, pcm16)
+      await streamTtsTextToPlayback(ws, session, text)
       session.welcomePlayed = true
     } catch (e) {
       // eslint-disable-next-line no-console
@@ -531,39 +531,59 @@ async function ttsToPcm16le8k(text: string): Promise<Buffer> {
   return float32ToPcm16le(resampled)
 }
 
-function cancelPlayback(session: CallSession): void {
+function clearPlayback(session: CallSession): void {
   const st = session.playback
   if (!st) return
   st.cancelled = true
   if (st.timer) clearTimeout(st.timer)
+  st.timer = null
   session.playback = null
 }
 
-function startPlayback(
+function cancelPlayback(session: CallSession): void {
+  clearPlayback(session)
+  // Invalidate any in-flight streamed TTS generation.
+  session.ttsGenerationId++
+}
+
+function createPlaybackState(): PlaybackState {
+  return {
+    timer: null,
+    cancelled: false,
+    queue: [],
+    current: null,
+    currentOffset: 0,
+  }
+}
+
+function pumpPlayback(
   ws: WebSocket,
   session: CallSession,
-  audioPcm16le8k: Buffer,
+  st: PlaybackState,
 ): void {
-  cancelPlayback(session)
-  if (!audioPcm16le8k.length) return
-
   const frameBytes = 320 // 20ms @ 8kHz: 160 samples * 2 bytes
   const frameMs = 20
-
-  let offset = 0
-  const st: PlaybackState = { timer: null, cancelled: false }
-  session.playback = st
 
   const sendNext = () => {
     if (st.cancelled) return
     if (ws.readyState !== WebSocket.OPEN) return
-    if (offset >= audioPcm16le8k.length) {
+
+    if (!st.current || st.currentOffset >= st.current.length) {
+      st.current = st.queue.shift() ?? null
+      st.currentOffset = 0
+    }
+
+    if (!st.current) {
       session.playback = null
+      st.timer = null
       return
     }
 
-    let chunk = audioPcm16le8k.subarray(offset, offset + frameBytes)
-    offset += frameBytes
+    let chunk = st.current.subarray(
+      st.currentOffset,
+      st.currentOffset + frameBytes,
+    )
+    st.currentOffset += frameBytes
 
     if (chunk.length < frameBytes) {
       const padded = Buffer.alloc(frameBytes, 0)
@@ -577,6 +597,107 @@ function startPlayback(
   }
 
   sendNext()
+}
+
+function enqueuePlayback(
+  ws: WebSocket,
+  session: CallSession,
+  audioPcm16le8k: Buffer,
+): void {
+  if (!audioPcm16le8k.length) return
+  if (ws.readyState !== WebSocket.OPEN) return
+
+  let st = session.playback
+  if (!st) {
+    st = createPlaybackState()
+    session.playback = st
+  }
+
+  st.queue.push(audioPcm16le8k)
+
+  // Start pumping when idle.
+  if (!st.timer && (!st.current || st.currentOffset >= st.current.length)) {
+    pumpPlayback(ws, session, st)
+  }
+}
+
+function splitTextForTts(text: string, maxChunkChars = 260): string[] {
+  const trimmed = text.trim()
+  if (!trimmed) return []
+
+  const sentenceLike =
+    trimmed
+      .match(/[^.!?\n]+[.!?]?/g)
+      ?.map(s => s.trim())
+      .filter(Boolean) ?? []
+
+  const sourceParts = sentenceLike.length ? sentenceLike : [trimmed]
+  const out: string[] = []
+  let current = ''
+
+  for (const part of sourceParts) {
+    if (!part) continue
+    const next = current ? `${current} ${part}` : part
+    if (next.length <= maxChunkChars) {
+      current = next
+      continue
+    }
+
+    if (current) out.push(current)
+
+    if (part.length <= maxChunkChars) {
+      current = part
+      continue
+    }
+
+    // Very long sentence fallback: split around maxChunkChars on whitespace.
+    let remaining = part
+    while (remaining.length > maxChunkChars) {
+      const cutAt = remaining.lastIndexOf(' ', maxChunkChars)
+      const idx = cutAt > 30 ? cutAt : maxChunkChars
+      out.push(remaining.slice(0, idx).trim())
+      remaining = remaining.slice(idx).trim()
+    }
+    current = remaining
+  }
+
+  if (current) out.push(current)
+  return out.filter(Boolean)
+}
+
+async function streamTtsTextToPlayback(
+  ws: WebSocket,
+  session: CallSession,
+  text: string,
+): Promise<void> {
+  const chunks = splitTextForTts(text)
+  if (!chunks.length) return
+
+  // Replace any currently playing utterance with the new one.
+  clearPlayback(session)
+  session.ttsGenerationId++
+  const generationId = session.ttsGenerationId
+
+  for (const chunkText of chunks) {
+    if (session.ttsGenerationId !== generationId) return
+    if (ws.readyState !== WebSocket.OPEN) return
+
+    let pcm16: Buffer
+    try {
+      pcm16 = await ttsToPcm16le8k(chunkText)
+    } catch (e) {
+      // eslint-disable-next-line no-console
+      console.warn(
+        `[SIP] chunk tts failed callId=${session.callId} chunk=${previewForLog(chunkText, 120)}`,
+        e,
+      )
+      continue
+    }
+
+    if (session.ttsGenerationId !== generationId) return
+    if (ws.readyState !== WebSocket.OPEN) return
+    enqueuePlayback(ws, session, pcm16)
+  }
 }
 
 function createVoskWs(callId: string): WebSocket {
@@ -631,6 +752,7 @@ function ensureSession(
     rxDump: openRxDump(callId),
     rxPcmDump: openRxPcmDump(callId),
     playback: null,
+    ttsGenerationId: 0,
   }
 
   ensurePhoneVisitor(visitorIpAddress).catch(e => {
@@ -649,7 +771,7 @@ function ensureSession(
         10,
       ) || 160
     VoskSendConfigService.sendChunkLength(voskWs, chunklen)
-    VoskSendConfigService.sendSampleRate(voskWs, sampleRateHz)
+    VoskSendConfigService.sendConfig(voskWs, sampleRateHz, BufferSize)
     VoskSendConfigService.sendSampleFormat(voskWs, 'mulaw8k')
     // flush pending audio
     for (const a of s.pendingAudio) {
@@ -900,9 +1022,8 @@ export function startSipClientBridge(): void {
         console.log(`[SIP] reply callId=${session.callId} text=${replyText}`)
 
         try {
-          const pcm16 = await ttsToPcm16le8k(replyText)
           if (!ws || ws.readyState !== WebSocket.OPEN) return
-          startPlayback(ws, session, pcm16)
+          await streamTtsTextToPlayback(ws, session, replyText)
         } catch (e) {
           // eslint-disable-next-line no-console
           console.error('[SIP] tts failed', e)
