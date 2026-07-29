@@ -772,7 +772,7 @@ function ensureSession(
       ) || 160
     VoskSendConfigService.sendChunkLength(voskWs, chunklen)
     VoskSendConfigService.sendConfig(voskWs, sampleRateHz, BufferSize)
-    VoskSendConfigService.sendSampleFormat(voskWs, 'mulaw8k')
+    VoskSendConfigService.sendSampleFormat(voskWs, 'ULAW')
     // flush pending audio
     for (const a of s.pendingAudio) {
       try {
