@@ -47,7 +47,7 @@ A modern Express.js server built with TypeScript, featuring MongoDB integration 
    NODE_ENV=development
    MONGODB_USERNAME=dummy
    MONGODB_PASSWORD=your-password
-   MONGODB_HOST=cluster0.abcdef.mongodb.net
+   MONGODB_HOST=localhost:27017
    MONGODB_DATABASE=agata
    ```
 
@@ -129,9 +129,9 @@ src/
 | ------------------ | ---------------------- | ------------------------------------ |
 | `PORT`             | Server port            | `3000`                               |
 | `NODE_ENV`         | Environment            | `development`                        |
-| `MONGODB_USERNAME` | MongoDB username       | — (falls back to local MongoDB)      |
-| `MONGODB_PASSWORD` | MongoDB password       | — (falls back to local MongoDB)      |
-| `MONGODB_HOST`     | MongoDB Atlas host     | — (falls back to local MongoDB)      |
+| `MONGODB_USERNAME` | MongoDB username       | — (required)                         |
+| `MONGODB_PASSWORD` | MongoDB password       | — (required)                         |
+| `MONGODB_HOST`     | MongoDB host           | — (required)                         |
 | `MONGODB_DATABASE` | MongoDB database name  | `agata`                              |
 
 ## Contributing

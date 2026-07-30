@@ -8,11 +8,11 @@ const buildMongoURI = (): string => {
 
   if (!username || !password || !host) {
     throw new Error(
-      'Missing MongoDB config: MONGODB_USERNAME, MONGODB_PASSWORD, and MONGODB_HOST are required'
+      'Missing MongoDB config: MONGODB_USERNAME, MONGODB_PASSWORD, and MONGODB_HOST are required',
     )
   }
 
-  return `mongodb+srv://${encodeURIComponent(username)}:${encodeURIComponent(password)}@${host}/${database}?retryWrites=true&w=majority&appName=${database}`
+  return `mongodb://${encodeURIComponent(username)}:${encodeURIComponent(password)}@${host}/${database}`
 }
 
 export const connectDB = async (): Promise<void> => {
