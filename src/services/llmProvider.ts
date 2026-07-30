@@ -60,7 +60,3 @@ export async function completeChat(
 
   return answer
 }
-
-export function supportsWebSearch(): boolean {
-  return getLlmProvider() === 'openai'
-}

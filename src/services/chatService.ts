@@ -183,7 +183,7 @@ async function askRagServer(
   }
 }
 
-async function questionForLlm(
+async function questionToGerman(
   question: string,
   queryLanguage: ReturnType<typeof detectQueryLanguage>,
 ): Promise<string> {
@@ -225,10 +225,13 @@ export const chatService = {
     const queryLanguage = detectQueryLanguage(message)
     logger.step('query language detected', { queryLanguage })
 
+    // Always have a German question before DuckDuckGo (and the LLM).
     const questionDe = await timedStep(
       logger,
-      queryLanguage === 'de' ? 'question already DE' : 'question translated HSB→DE',
-      () => questionForLlm(message, queryLanguage),
+      queryLanguage === 'de'
+        ? 'question already DE'
+        : 'question translated HSB→DE (before duckduckgo)',
+      () => questionToGerman(message, queryLanguage),
       result => ({
         questionDeChars: result.length,
         questionDePreview: summarizeText(result),
@@ -269,6 +272,7 @@ export const chatService = {
         resultCount: result.length,
         requestedCount: ddgCount,
         ragIsBad,
+        queryPreview: summarizeText(questionDe),
         results: result.map(item => ({
           title: item.title,
           url: item.url,

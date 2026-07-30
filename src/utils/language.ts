@@ -1,6 +1,20 @@
 export type QueryLanguage = 'de' | 'hsb'
 
-const HSB_CHARS = new Set(['ł', 'ń', 'ś', 'ź', 'ć', 'ž'])
+const HSB_CHARS = new Set([
+  'ł',
+  'ń',
+  'ś',
+  'ź',
+  'ć',
+  'ž',
+  'š',
+  'č',
+  'ě',
+  'ó',
+  'ř',
+  'ŕ',
+  'ů',
+])
 
 const HSB_MARKERS = [
   'wón',
@@ -18,6 +32,11 @@ const HSB_MARKERS = [
   'wobsah',
   'přichod',
   'přeco',
+  'što',
+  'štó',
+  'hdźe',
+  'kak',
+  'prošu',
 ]
 
 export function detectQueryLanguage(text: string): QueryLanguage {
