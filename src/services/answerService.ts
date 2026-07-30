@@ -1,10 +1,7 @@
-import OpenAI from 'openai'
 import {
   completeChat,
-  supportsWebSearch,
   type ChatMessage,
 } from './llmProvider'
-import { getOpenAIClient } from './openaiClient'
 
 type PromptMode = 'rag' | 'web' | 'general'
 
@@ -33,10 +30,6 @@ function todayIso(): string {
   return new Date().toISOString()
 }
 
-function getOpenAIChatModel(): string {
-  return process.env['OPENAI_CHAT_MODEL']?.trim() || 'gpt-5-mini'
-}
-
 function buildSystemPrompt(isPhoneCall: boolean, mode: PromptMode): string {
   let prompt =
     `Heutiges Datum: ${todayIso()}. ` +
@@ -59,7 +52,8 @@ function buildSystemPrompt(isPhoneCall: boolean, mode: PromptMode): string {
   if (mode === 'rag') {
     prompt +=
       '\n\nFür diese Anfrage gelten zwingende Regeln:\n' +
-      '- Nutze ausschließlich den bereitgestellten Kontext.\n' +
+      '- Nutze ausschließlich den bereitgestellten Kontext ' +
+      '(Wissensbasis und ggf. Websuche-Ergebnisse).\n' +
       '- Erfinde keine Fakten, Namen, Daten, Orte, Zahlen oder URLs.\n' +
       '- Wenn der Kontext die Frage nicht vollständig beantwortet, sage klar, ' +
       'dass die Datenbasis nicht ausreicht.\n' +
@@ -76,8 +70,8 @@ function buildSystemPrompt(isPhoneCall: boolean, mode: PromptMode): string {
         'Die Antwort soll hilfreich sein und nicht unnötig kurz ausfallen.'
 
     prompt +=
-      `\n\nFür diese Anfrage gilt: Nutze Websuche für aktuelle Informationen. ` +
-      `${lengthHint} Erfinde keine Fakten.`
+      `\n\nFür diese Anfrage gilt: Nutze die bereitgestellten Websuche-Ergebnisse ` +
+      `als Kontext. ${lengthHint} Erfinde keine Fakten.`
   } else {
     const lengthHint = isPhoneCall
       ? 'Antworte sehr kurz und auf Deutsch.'
@@ -192,15 +186,19 @@ function formatNumberedContexts(contexts: string[]): string {
     .join('\n\n')
 }
 
-function buildRagUserPrompt(
+function buildContextUserPrompt(
   question: string,
   contexts: string[],
   isPhoneCall: boolean,
+  mode: PromptMode,
 ): string {
+  const sourceLabel =
+    mode === 'web' ? 'Websuche-Ergebnisse' : 'nummerierten Kontextblöcke'
+
   let prompt =
     `Frage:\n${question.trim()}\n\n` +
     `Kontext:\n${formatNumberedContexts(contexts)}\n\n` +
-    'Beantworte die Frage ausschließlich mit Hilfe der nummerierten Kontextblöcke.\n' +
+    `Beantworte die Frage ausschließlich mit Hilfe der ${sourceLabel}.\n` +
     '- Erfinde keine Informationen, die nicht im Kontext stehen.\n' +
     '- Wenn der Kontext nicht ausreicht, sage klar: "Die Datenbasis reicht nicht aus."\n' +
     '- Nenne keine Quellen oder URLs, die nicht im Kontext vorkommen.\n' +
@@ -236,125 +234,47 @@ function chatInput(params: {
   ]
 }
 
-function toPlainDict(value: unknown): Record<string, unknown> {
-  if (!value || typeof value !== 'object') return {}
-  if (Array.isArray(value)) return {}
-  return { ...(value as Record<string, unknown>) }
-}
-
-function dedupeSourcesByUrl(sources: AnswerSource[]): AnswerSource[] {
-  const deduped: AnswerSource[] = []
-  const seenUrls = new Set<string>()
-
-  for (const source of sources) {
-    if (seenUrls.has(source.source_url)) continue
-    seenUrls.add(source.source_url)
-    deduped.push(source)
-  }
-
-  return deduped
-}
-
-function extractWebSources(response: unknown): AnswerSource[] {
-  const sources: AnswerSource[] = []
-  const outputItems =
-  (response as { output?: unknown[] } | null | undefined)?.output ?? []
-
-  for (const item of outputItems) {
-    const itemDict = toPlainDict(item)
-    const itemType = String(itemDict['type'] ?? '').trim()
-    if (itemType !== 'web_search_call') continue
-
-    const actionDict = toPlainDict(itemDict['action'])
-    const rawSources = Array.isArray(actionDict['sources'])
-      ? actionDict['sources']
-      : []
-
-    for (const src of rawSources) {
-      const srcDict = toPlainDict(src)
-      const url = String(srcDict['url'] ?? '').trim()
-      if (!url) continue
-
-      sources.push({
-        source_type: 'web',
-        source_url: url,
-        title: String(srcDict['title'] ?? '').trim(),
-      })
-    }
-  }
-
-  return dedupeSourcesByUrl(sources)
-}
-
-async function answerWithRag(params: {
+async function answerWithContexts(params: {
   question: string
   contexts: string[]
   history?: string[]
   isPhoneCall: boolean
+  mode: PromptMode
 }): Promise<string> {
   return completeChat(
     chatInput({
       isPhoneCall: params.isPhoneCall,
-      mode: 'rag',
+      mode: params.mode,
       ...(params.history ? { history: params.history } : {}),
-      userContent: buildRagUserPrompt(
+      userContent: buildContextUserPrompt(
         params.question,
         params.contexts,
         params.isPhoneCall,
+        params.mode,
       ),
     }),
   )
 }
 
-async function answerWithWebSearch(params: {
+async function answerGeneral(params: {
   question: string
   history?: string[]
   isPhoneCall: boolean
-}): Promise<{ answer: string; sources: AnswerSource[] }> {
+}): Promise<string> {
   const userContent =
     `${params.question}\n\n` +
     'Beantworte die aktuelle Frage direkt auf Deutsch. ' +
     'Erfinde keine Fakten. ' +
     'Bei normalen Anfragen soll die Antwort hilfreich und nicht unnötig kurz sein.'
 
-  if (!supportsWebSearch()) {
-    const answer = await completeChat(
-      chatInput({
-        isPhoneCall: params.isPhoneCall,
-        mode: 'general',
-        ...(params.history ? { history: params.history } : {}),
-        userContent,
-      }),
-    )
-
-    return {
-      answer,
-      sources: [],
-    }
-  }
-
-  const client = getOpenAIClient()
-  const response = await client.responses.create({
-    model: getOpenAIChatModel(),
-    tools: [
-      {
-        type: 'web_search',
-        search_context_size: 'medium',
-      },
-    ],
-    include: ['web_search_call.action.sources' as OpenAI.Responses.ResponseIncludable],
-    input: chatInput({
+  return completeChat(
+    chatInput({
       isPhoneCall: params.isPhoneCall,
-      mode: 'web',
+      mode: 'general',
       ...(params.history ? { history: params.history } : {}),
       userContent,
-    }) as OpenAI.Responses.ResponseInput,
-  })
-
-  return {
-    answer: response.output_text.trim(),
-    sources: extractWebSources(response),
-  }
+    }),
+  )
 }
 
 export const answerService = {
@@ -364,32 +284,36 @@ export const answerService = {
     ragSources: AnswerSource[]
     history?: string[]
     isPhoneCall: boolean
+    preferredStrategy?: 'rag' | 'web' | 'general'
   }): Promise<AnswerResult> {
     if (params.contextsDe.length > 0) {
-      const answerDe = await answerWithRag({
+      const mode: PromptMode =
+        params.preferredStrategy === 'web' ? 'web' : 'rag'
+      const answerDe = await answerWithContexts({
         question: params.questionDe,
         contexts: params.contextsDe,
         ...(params.history ? { history: params.history } : {}),
         isPhoneCall: params.isPhoneCall,
+        mode,
       })
 
       return {
         answer: answerDe,
         sources: params.ragSources,
-        sourceStrategy: 'rag',
+        sourceStrategy: mode,
       }
     }
 
-    const webResult = await answerWithWebSearch({
+    const answerDe = await answerGeneral({
       question: params.questionDe,
       ...(params.history ? { history: params.history } : {}),
       isPhoneCall: params.isPhoneCall,
     })
 
     return {
-      answer: webResult.answer,
-      sources: webResult.sources,
-      sourceStrategy: supportsWebSearch() ? 'web' : 'general',
+      answer: answerDe,
+      sources: [],
+      sourceStrategy: 'general',
     }
   },
 }

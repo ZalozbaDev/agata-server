@@ -2,6 +2,12 @@ import mongoose from 'mongoose'
 import { Prompt } from '../models/Prompt'
 import { Visitor } from '../models/Visitor'
 import { answerService } from './answerService'
+import {
+  DUCKDUCKGO_WITHOUT_RAG_COUNT,
+  DUCKDUCKGO_WITH_RAG_COUNT,
+  formatDuckDuckGoContexts,
+  searchDuckDuckGo,
+} from './duckDuckGoClient'
 import { sotraClient } from './sotraClient'
 import { detectQueryLanguage } from '../utils/language'
 import {
@@ -229,7 +235,7 @@ export const chatService = {
       }),
     )
 
-    const contextsDe =
+    let contextsDe =
       ragResponse.contexts.length > 0
         ? await timedStep(
             logger,
@@ -250,6 +256,45 @@ export const chatService = {
           )
         : []
 
+    const ragIsBad = contextsDe.length === 0
+    const ddgCount = ragIsBad
+      ? DUCKDUCKGO_WITHOUT_RAG_COUNT
+      : DUCKDUCKGO_WITH_RAG_COUNT
+
+    const ddgResults = await timedStep(
+      logger,
+      `duckduckgo search (${ddgCount})`,
+      () => searchDuckDuckGo(questionDe, ddgCount),
+      result => ({
+        resultCount: result.length,
+        requestedCount: ddgCount,
+        ragIsBad,
+        results: result.map(item => ({
+          title: item.title,
+          url: item.url,
+          snippetPreview: summarizeText(item.snippet, 200),
+        })),
+      }),
+    )
+
+    let answerSources = [...ragResponse.sources]
+    let preferredStrategy: 'rag' | 'web' | 'general' | undefined
+
+    if (ddgResults.length > 0) {
+      contextsDe = [...contextsDe, ...formatDuckDuckGoContexts(ddgResults)]
+      answerSources = [
+        ...answerSources,
+        ...ddgResults.map(result => ({
+          source_type: 'web',
+          source_url: result.url,
+          title: result.title,
+        })),
+      ]
+      preferredStrategy = ragIsBad ? 'web' : 'rag'
+    } else if (ragIsBad) {
+      preferredStrategy = 'general'
+    }
+
     const answerResult = await timedStep(
       logger,
       'llm answer generated',
@@ -257,9 +302,10 @@ export const chatService = {
         answerService.generateAnswer({
           questionDe,
           contextsDe,
-          ragSources: ragResponse.sources,
+          ragSources: answerSources,
           history: ragHistory,
           isPhoneCall,
+          ...(preferredStrategy ? { preferredStrategy } : {}),
         }),
       result => ({
         sourceStrategy: result.sourceStrategy,
