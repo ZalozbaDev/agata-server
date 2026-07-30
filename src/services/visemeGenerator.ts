@@ -41,8 +41,6 @@ export class VisemeGeneratorService {
 
   // Generate visemes from text (simplified approach)
   generateVisemesFromText(text: string, duration: number): VisemeTimeline {
-    console.log('Generating visemes from text:', text)
-
     const visemes: Viseme[] = []
     const words = text.split(' ').filter(word => word.length > 0)
 
@@ -79,18 +77,15 @@ export class VisemeGeneratorService {
       sampleRate: 44100,
     }
 
-    console.log(
-      `Generated ${visemes.length} visemes for ${duration.toFixed(2)}s text`
-    )
     return timeline
   }
 
   // Generate visemes from audio buffer (placeholder for future implementation)
   async generateVisemesFromAudio(
-    _audioBuffer: Buffer
+    _audioBuffer: Buffer,
   ): Promise<VisemeTimeline> {
     console.log(
-      'Audio-based viseme generation not yet implemented, using fallback'
+      'Audio-based viseme generation not yet implemented, using fallback',
     )
 
     // For now, return a simple timeline with rest visemes
@@ -112,7 +107,7 @@ export class VisemeGeneratorService {
   private generateVisemesForWord(
     word: string,
     startTime: number,
-    endTime: number
+    endTime: number,
   ): Viseme[] {
     const visemes: Viseme[] = []
     const phonemes = this.textToPhonemes(word)

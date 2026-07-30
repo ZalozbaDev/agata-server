@@ -63,12 +63,7 @@ router.post('/chat', async (req: Request, res: Response) => {
     const result = await chatService.handleChat(chatInput)
 
     // Keep response shape stable
-    res.send({
-      message: result.message,
-      timestamp: result.timestamp,
-      substitutionData: result.substitutionData ?? undefined,
-      dataSources: result.dataSources ?? undefined,
-    })
+    res.send(result)
   } catch (error) {
     console.error('Error in /chat:', error)
     res.status(500).send({ error: 'Failed to process chat message' })

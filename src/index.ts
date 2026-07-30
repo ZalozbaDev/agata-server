@@ -54,12 +54,6 @@ const startServer = async (): Promise<void> => {
     // Start SIP-client (Asterisk) phone bridge
     startSipClientBridge()
 
-    // Start scheduled data fetching
-    // const fetchInterval = parseInt(
-    //   process.env['DATA_FETCH_INTERVAL'] || '3600000'
-    // )
-    // schedulerService.startScheduledFetching(fetchInterval)
-    // schedulerService.startScheduledFetching()
     server.listen(PORT, () => {
       console.log(`🚀 Server running on port ${PORT}`)
       console.log(`📊 Environment: ${process.env['NODE_ENV'] || 'development'}`)
