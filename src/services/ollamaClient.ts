@@ -6,20 +6,20 @@ export type ChatMessage = {
 }
 
 export function getLlmProvider(): LlmProvider {
-  const provider = process.env['LLM_PROVIDER']?.trim().toLowerCase()
+  const provider = process.env['LLM_CHAT_BACKEND']?.trim().toLowerCase()
   return provider === 'ollama' ? 'ollama' : 'openai'
 }
 
 export function getOllamaUrl(): string {
-  const url = process.env['OLLAMA_URL']?.trim()
+  const url = process.env['LLM_CHAT_ENDPOINT']?.trim()
   if (!url) {
-    throw new Error('OLLAMA_URL is missing')
+    throw new Error('LLM_CHAT_ENDPOINT is missing')
   }
   return url.replace(/\/$/, '')
 }
 
 export function getOllamaChatModel(): string {
-  return process.env['OLLAMA_CHAT_MODEL']?.trim() || 'qwen3.5:4b'
+  return process.env['LLM_CHAT_MODEL']?.trim() || 'qwen3.5:4b'
 }
 
 export function getOllamaTimeoutMs(): number {
