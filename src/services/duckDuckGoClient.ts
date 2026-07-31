@@ -8,9 +8,9 @@ export type DuckDuckGoResult = {
 }
 
 /** DDG results when RAG also returned usable contexts */
-export const DUCKDUCKGO_WITH_RAG_COUNT = 5
+export const DUCKDUCKGO_WITH_RAG_COUNT = 2
 /** DDG results when RAG returned nothing usable */
-export const DUCKDUCKGO_WITHOUT_RAG_COUNT = 10
+export const DUCKDUCKGO_WITHOUT_RAG_COUNT = 5
 const MAX_SNIPPET_CHARS = 600
 
 function isHttpUrl(value: string): boolean {
@@ -54,7 +54,9 @@ function normalizeResults(
   return results
 }
 
-export function formatDuckDuckGoContexts(results: DuckDuckGoResult[]): string[] {
+export function formatDuckDuckGoContexts(
+  results: DuckDuckGoResult[],
+): string[] {
   return results.map(result => {
     const parts = [`Titel: ${result.title}`, `URL: ${result.url}`]
     if (result.snippet) {
