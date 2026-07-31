@@ -6,6 +6,10 @@ function directionLabel(direction: SotraDirection): string {
   return direction === 'hsb_de' ? 'HSB→DE' : 'DE→HSB'
 }
 
+function isTruthyEnv(value?: string): boolean {
+  return value?.trim().toLowerCase() === 'true'
+}
+
 async function translate(
   text: string,
   direction: SotraDirection,
@@ -15,11 +19,12 @@ async function translate(
 
   const baseUrl = process.env['SOTRA_URL']?.trim()
   const apiKey = process.env['SOTRA_API_KEY']?.trim()
+  const useLocalBackend = isTruthyEnv(process.env['SOTRA_LOCAL_BACKEND'])
 
   if (!baseUrl) {
     throw new Error('SOTRA_URL ist nicht gesetzt')
   }
-  if (!apiKey) {
+  if (!useLocalBackend && !apiKey) {
     throw new Error('SOTRA_API_KEY ist nicht gesetzt')
   }
 
@@ -35,10 +40,18 @@ async function translate(
   const controller = new AbortController()
   const timeout = setTimeout(() => controller.abort(), timeoutMs)
 
-  const requestUrl = new URL(baseUrl.replace(/\/$/, ''))
-  requestUrl.searchParams.set('uri', '/ws/translate/')
-  requestUrl.searchParams.set('api_key', apiKey)
-  requestUrl.searchParams.set('_version', '2.2.01')
+  const requestUrl = useLocalBackend
+    ? new URL('/translate', baseUrl)
+    : new URL(baseUrl.replace(/\/$/, ''))
+
+  if (!useLocalBackend) {
+    requestUrl.searchParams.set('uri', '/ws/translate/')
+    requestUrl.searchParams.set('api_key', apiKey ?? '')
+    requestUrl.searchParams.set('_version', '2.2.01')
+  }
+
+  const sourceLanguage = direction === 'hsb_de' ? 'hsb' : 'de'
+  const targetLanguage = direction === 'hsb_de' ? 'de' : 'hsb'
 
   try {
     const response = await fetch(requestUrl.toString(), {
@@ -47,11 +60,19 @@ async function translate(
         'Content-Type': 'application/json',
       },
       signal: controller.signal,
-      body: JSON.stringify({
-        direction,
-        warnings: false,
-        text: trimmed,
-      }),
+      body: JSON.stringify(
+        useLocalBackend
+          ? {
+              text: trimmed,
+              source_language: sourceLanguage,
+              target_language: targetLanguage,
+            }
+          : {
+              direction,
+              warnings: false,
+              text: trimmed,
+            },
+      ),
     })
 
     if (!response.ok) {
@@ -61,8 +82,23 @@ async function translate(
       )
     }
 
-    const data = (await response.json()) as { output_html?: string }
-    const output = String(data.output_html ?? '').trim()
+    const responseText = await response.text()
+    let output = responseText.trim()
+
+    try {
+      const data = JSON.parse(responseText) as {
+        output_html?: string
+        output?: string
+        translated_text?: string
+        text?: string
+      }
+      output = String(
+        data.output_html ?? data.output ?? data.translated_text ?? data.text ?? responseText,
+      ).trim()
+    } catch {
+      // Keep plain-text responses as-is.
+    }
+
     const durationMs = Date.now() - startedAt
     const finishedAt = new Date().toISOString()
 
