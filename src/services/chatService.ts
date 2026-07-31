@@ -48,6 +48,9 @@ type RagAskResponse = {
   }[]
 }
 
+const MAX_CACHED_HISTORY_ITEMS = 3
+const conversationHistoryCache = new Map<string, HistoryItem[]>()
+
 function normalizeHistoryToStringArray(history: HistoryItem[]): string[] {
   return history
     .map(item => {
@@ -67,47 +70,49 @@ function summarizeRagResponse(response: RagAskResponse) {
       title: source.title,
     })),
     contextChars: response.contexts.map(context => context.length),
-    contextPreviews: response.contexts.map(context => summarizeText(context, 250)),
+    contextPreviews: response.contexts.map(context =>
+      summarizeText(context, 250),
+    ),
   }
 }
 
 async function buildHistory(ipAddress?: string): Promise<HistoryItem[]> {
   if (!ipAddress) return []
 
-  const visitor = await Visitor.findOne({ ipAddress }).populate({
-    path: 'prompts',
-    model: 'Prompt',
-    select: 'input_text output_text',
-    options: { sort: { _id: -1 }, limit: 3 },
-  })
+  return conversationHistoryCache.get(ipAddress) ?? []
+}
 
-  const history: HistoryItem[] = []
-  if (!visitor) return history
+function rememberHistoryTurn(params: {
+  ipAddress: string
+  input_text: string
+  output_text: string
+}) {
+  const inputText = String(params.input_text ?? '').trim()
+  const outputText = String(params.output_text ?? '').trim()
 
-  for (let index = 0; index < visitor.prompts.length; index++) {
-    const prompt = visitor.prompts[index] as any
+  if (!inputText && !outputText) return
 
-    if (typeof prompt === 'object' && prompt !== null) {
-      const inputText = String(prompt.input_text ?? '').trim()
-      const outputText = String(prompt.output_text ?? '').trim()
+  const currentHistory = conversationHistoryCache.get(params.ipAddress) ?? []
+  const nextHistory = [...currentHistory]
 
-      if (inputText) {
-        history.push({
-          role: 'user',
-          content: inputText,
-        })
-      }
-
-      if (outputText) {
-        history.push({
-          role: 'assistant',
-          content: outputText,
-        })
-      }
-    }
+  if (inputText) {
+    nextHistory.push({
+      role: 'user',
+      content: inputText,
+    })
   }
 
-  return history
+  if (outputText) {
+    nextHistory.push({
+      role: 'assistant',
+      content: outputText,
+    })
+  }
+
+  conversationHistoryCache.set(
+    params.ipAddress,
+    nextHistory.slice(-MAX_CACHED_HISTORY_ITEMS),
+  )
 }
 
 async function persistPrompt(params: {
@@ -171,7 +176,10 @@ async function askRagServer(
     const durationMs = Date.now() - startedAt
     const finishedAt = new Date().toISOString()
 
-    chatTimingLog(`${finishedAt} | rag response | ${durationMs}ms`, summarizeRagResponse(data))
+    chatTimingLog(
+      `${finishedAt} | rag response | ${durationMs}ms`,
+      summarizeRagResponse(data),
+    )
     logger.step('rag', {
       durationMs,
       ...summarizeRagResponse(data),
@@ -215,8 +223,10 @@ export const chatService = {
     const persist = input.persist ?? true
     const isPhoneCall = input.isPhoneCall ?? false
 
-    const history = await timedStep(logger, 'history loaded', () =>
-      buildHistory(ipAddress),
+    const history = await timedStep(
+      logger,
+      'history loaded',
+      () => buildHistory(ipAddress),
       result => ({ historyItems: result.length }),
     )
     const ragHistory = normalizeHistoryToStringArray(history)
@@ -330,6 +340,14 @@ export const chatService = {
         }),
       )
     ).trim()
+
+    if (ipAddress) {
+      rememberHistoryTurn({
+        ipAddress,
+        input_text: message,
+        output_text: responseMessage,
+      })
+    }
 
     if (persist && ipAddress) {
       await timedStep(logger, 'prompt persisted', () =>
