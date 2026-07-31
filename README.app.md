@@ -48,6 +48,7 @@ A modern Express.js server built with TypeScript, featuring MongoDB integration 
    MONGODB_USERNAME=dummy
    MONGODB_PASSWORD=your-password
    MONGODB_HOST=localhost:27017
+   SOTRA_LOCAL_BACKEND=false
    ```
 
 4. **Start MongoDB** (if using local instance)
@@ -124,13 +125,14 @@ src/
 
 ## Environment Variables
 
-| Variable           | Description      | Default       |
-| ------------------ | ---------------- | ------------- |
-| `PORT`             | Server port      | `3000`        |
-| `NODE_ENV`         | Environment      | `development` |
-| `MONGODB_USERNAME` | MongoDB username | — (required)  |
-| `MONGODB_PASSWORD` | MongoDB password | — (required)  |
-| `MONGODB_HOST`     | MongoDB host     | — (required)  |
+| Variable              | Description                          | Default       |
+| --------------------- | ------------------------------------ | ------------- |
+| `PORT`                | Server port                          | `3000`        |
+| `NODE_ENV`            | Environment                          | `development` |
+| `MONGODB_USERNAME`    | MongoDB username                     | — (required)  |
+| `MONGODB_PASSWORD`    | MongoDB password                     | — (required)  |
+| `MONGODB_HOST`        | MongoDB host                         | — (required)  |
+| `SOTRA_LOCAL_BACKEND` | Use local Sotra `/translate` backend | `false`       |
 
 ## Contributing
 

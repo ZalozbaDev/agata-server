@@ -24,7 +24,7 @@ async function translate(
   if (!baseUrl) {
     throw new Error('SOTRA_URL ist nicht gesetzt')
   }
-  if (!useLocalBackend && !apiKey) {
+  if (!apiKey) {
     throw new Error('SOTRA_API_KEY ist nicht gesetzt')
   }
 
@@ -93,7 +93,11 @@ async function translate(
         text?: string
       }
       output = String(
-        data.output_html ?? data.output ?? data.translated_text ?? data.text ?? responseText,
+        data.output_html ??
+          data.output ??
+          data.translated_text ??
+          data.text ??
+          responseText,
       ).trim()
     } catch {
       // Keep plain-text responses as-is.
