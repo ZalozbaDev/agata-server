@@ -1,15 +1,12 @@
+import 'dotenv/config'
 import express from 'express'
 import cors from 'cors'
 import helmet from 'helmet'
-import dotenv from 'dotenv'
 import { connectDB } from './config/database'
 import { errorHandler } from './middleware/errorHandler'
 import routes from './routes'
 import http from 'http'
 import { startSipClientBridge } from './telephony/sipBridge'
-
-// Load environment variables
-dotenv.config()
 
 const app = express()
 const PORT = process.env['PORT'] || 3000

@@ -1,13 +1,15 @@
 import axios, { AxiosRequestConfig } from 'axios'
 import { visemeGeneratorService } from './visemeGenerator'
 
-let bamborak_api_base_url = process.env['BAMBORAK_API_BASE_URL']
-if (!bamborak_api_base_url) {
+const configuredBaseUrl = process.env['BAMBORAK_API_BASE_URL']?.trim()
+
+if (!configuredBaseUrl) {
   throw new Error('Missing BAMBORAK_API_BASE_URL environment variable')
 }
-bamborak_api_base_url = bamborak_api_base_url.endsWith('/')
-  ? bamborak_api_base_url.slice(0, -1)
-  : bamborak_api_base_url
+
+let bamborak_api_base_url = configuredBaseUrl.endsWith('/')
+  ? configuredBaseUrl.slice(0, -1)
+  : configuredBaseUrl
 bamborak_api_base_url = `${bamborak_api_base_url}/api`
 
 export type BamborakSpeakerId = string | number
