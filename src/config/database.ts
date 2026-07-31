@@ -4,7 +4,6 @@ const buildMongoURI = (): string => {
   const username = process.env['MONGODB_USERNAME']
   const password = process.env['MONGODB_PASSWORD']
   const host = process.env['MONGODB_HOST']
-  const database = process.env['MONGODB_DATABASE'] || 'agata'
 
   if (!username || !password || !host) {
     throw new Error(
@@ -12,7 +11,7 @@ const buildMongoURI = (): string => {
     )
   }
 
-  return `mongodb://${encodeURIComponent(username)}:${encodeURIComponent(password)}@${host}/${database}`
+  return `mongodb://${encodeURIComponent(username)}:${encodeURIComponent(password)}@${host}`
 }
 
 export const connectDB = async (): Promise<void> => {
