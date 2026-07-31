@@ -52,7 +52,9 @@ const startServer = async (): Promise<void> => {
     await connectDB()
 
     // Start SIP-client (Asterisk) phone bridge
-    startSipClientBridge()
+    if (process.env['SIP_ENABLED'] === 'true') {
+      startSipClientBridge()
+    }
 
     server.listen(PORT, () => {
       console.log(`🚀 Server running on port ${PORT}`)
