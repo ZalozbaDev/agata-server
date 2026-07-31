@@ -87,13 +87,15 @@ async function translate(
 
     try {
       const data = JSON.parse(responseText) as {
+        marked_translation?: string
         output_html?: string
         output?: string
         translated_text?: string
         text?: string
       }
       output = String(
-        data.output_html ??
+        data.marked_translation ??
+          data.output_html ??
           data.output ??
           data.translated_text ??
           data.text ??
