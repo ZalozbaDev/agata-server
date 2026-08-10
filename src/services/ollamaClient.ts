@@ -5,6 +5,11 @@ export type ChatMessage = {
   content: string
 }
 
+export type ChatCompletionOptions = {
+  /** Ollama `format` / JSON schema for structured outputs */
+  format?: unknown
+}
+
 export function getLlmProvider(): LlmProvider {
   const provider = process.env['LLM_CHAT_BACKEND']?.trim().toLowerCase()
   return provider === 'ollama' ? 'ollama' : 'openai'
@@ -26,6 +31,11 @@ export function getOllamaTimeoutMs(): number {
   return Number(process.env['OLLAMA_TIMEOUT_SECONDS'] ?? 60) * 1000
 }
 
+function getOllamaApiKey(): string | undefined {
+  const key = process.env['LLM_CHAT_API_KEY']?.trim()
+  return key || undefined
+}
+
 type OllamaChatResponse = {
   message?: {
     content?: string
@@ -34,23 +44,35 @@ type OllamaChatResponse = {
 
 export async function completeOllamaChat(
   messages: ChatMessage[],
+  options?: ChatCompletionOptions,
 ): Promise<string> {
   const controller = new AbortController()
   const timeout = setTimeout(() => controller.abort(), getOllamaTimeoutMs())
 
   try {
+    const headers: Record<string, string> = {
+      'Content-Type': 'application/json',
+    }
+    const apiKey = getOllamaApiKey()
+    if (apiKey) {
+      headers['Authorization'] = `Bearer ${apiKey}`
+    }
+
+    const body: Record<string, unknown> = {
+      model: getOllamaChatModel(),
+      messages,
+      think: false,
+      stream: false,
+    }
+    if (options?.format !== undefined) {
+      body['format'] = options.format
+    }
+
     const response = await fetch(`${getOllamaUrl()}/api/chat`, {
       method: 'POST',
-      headers: {
-        'Content-Type': 'application/json',
-      },
+      headers,
       signal: controller.signal,
-      body: JSON.stringify({
-        model: getOllamaChatModel(),
-        messages,
-        think: false,
-        stream: false,
-      }),
+      body: JSON.stringify(body),
     })
 
     if (!response.ok) {

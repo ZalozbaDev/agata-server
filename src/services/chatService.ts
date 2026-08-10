@@ -5,10 +5,16 @@ import { answerService } from './answerService'
 import {
   DUCKDUCKGO_WITHOUT_RAG_COUNT,
   DUCKDUCKGO_WITH_RAG_COUNT,
-  formatDuckDuckGoContexts,
   searchDuckDuckGo,
 } from './duckDuckGoClient'
 import { sotraClient } from './sotraClient'
+import {
+  assignSourceIds,
+  countSourcesByType,
+  normalizeRagSources,
+  normalizeWebSources,
+} from './sourceService'
+import type { AnswerLanguage, Source } from '../types/source'
 import { detectQueryLanguage } from '../utils/language'
 import {
   ChatTimingLogger,
@@ -18,13 +24,17 @@ import {
 } from '../utils/chatTimingLogger'
 
 export type ChatServiceResult = {
+  language: AnswerLanguage
+  title: string
+  /** Primary answer field for the stable API */
+  answer: string
+  /**
+   * Alias of `answer` for existing clients (webapp/SIP) during transition.
+   * Prefer `answer` for new code.
+   */
   message: string
   timestamp: string
-  sources: {
-    source_type: string
-    source_url: string
-    title: string
-  }[]
+  sources: Source[]
 }
 
 export type ChatServiceInput = {
@@ -32,6 +42,8 @@ export type ChatServiceInput = {
   ipAddress?: string
   persist?: boolean
   isPhoneCall?: boolean
+  /** Explicit UI language overrides detection when provided */
+  outputLanguage?: AnswerLanguage
 }
 
 type HistoryItem = {
@@ -199,12 +211,42 @@ async function questionToGerman(
   return sotraClient.translateHsbToDe(question)
 }
 
+/**
+ * Translate RAG context snippets to German for retrieval/LLM when needed.
+ * Snippets stay server-side as source content; URLs are never sent to the LLM.
+ */
+async function translateRagSnippetsToGerman(
+  contexts: string[],
+  logger: ChatTimingLogger,
+): Promise<string[]> {
+  if (contexts.length === 0) return []
+
+  return timedStep(
+    logger,
+    'contexts translated HSB→DE',
+    () =>
+      Promise.all(
+        contexts.map(context => sotraClient.translateHsbToDe(context)),
+      ),
+    result => ({
+      translatedContextCount: result.length,
+      translatedContextChars: result.map(context => context.length),
+      translatedContextPreviews: result.map(context =>
+        summarizeText(context, 250),
+      ),
+    }),
+  )
+}
+
 export const chatService = {
   async handleChat(input: ChatServiceInput): Promise<ChatServiceResult> {
     const message = (input.message ?? '').trim()
 
     if (!message) {
       return {
+        language: 'hsb',
+        title: '',
+        answer: '',
         message: '',
         timestamp: new Date().toISOString(),
         sources: [],
@@ -233,9 +275,11 @@ export const chatService = {
 
     const ragResponse = await askRagServer(message, logger)
     const queryLanguage = detectQueryLanguage(message)
-    logger.step('query language detected', { queryLanguage })
+    // Explicit frontend/client language wins over detection.
+    const outputLanguage: AnswerLanguage =
+      input.outputLanguage ?? queryLanguage
+    logger.step('query language detected', { queryLanguage, outputLanguage })
 
-    // Always have a German question before DuckDuckGo (and the LLM).
     const questionDe = await timedStep(
       logger,
       queryLanguage === 'de'
@@ -248,26 +292,10 @@ export const chatService = {
       }),
     )
 
-    let contextsDe =
-      ragResponse.contexts.length > 0
-        ? await timedStep(
-            logger,
-            'contexts translated HSB→DE',
-            () =>
-              Promise.all(
-                ragResponse.contexts.map(context =>
-                  sotraClient.translateHsbToDe(context),
-                ),
-              ),
-            result => ({
-              translatedContextCount: result.length,
-              translatedContextChars: result.map(context => context.length),
-              translatedContextPreviews: result.map(context =>
-                summarizeText(context, 250),
-              ),
-            }),
-          )
-        : []
+    const contextsDe = await translateRagSnippetsToGerman(
+      ragResponse.contexts,
+      logger,
+    )
 
     const ragIsBad = contextsDe.length === 0
     const ddgCount = ragIsBad
@@ -291,22 +319,31 @@ export const chatService = {
       }),
     )
 
-    let answerSources = [...ragResponse.sources]
-    let preferredStrategy: 'rag' | 'web' | 'general' | undefined
+    const ragSourcesNormalized = normalizeRagSources(
+      contextsDe,
+      ragResponse.sources,
+    )
+    const webSourcesNormalized = normalizeWebSources(ddgResults)
+    const sources = assignSourceIds([
+      ...ragSourcesNormalized,
+      ...webSourcesNormalized,
+    ])
 
-    if (ddgResults.length > 0) {
-      contextsDe = [...contextsDe, ...formatDuckDuckGoContexts(ddgResults)]
-      answerSources = [
-        ...answerSources,
-        ...ddgResults.map(result => ({
-          source_type: 'web',
-          source_url: result.url,
-          title: result.title,
-        })),
-      ]
-      preferredStrategy = ragIsBad ? 'web' : 'rag'
-    } else if (ragIsBad) {
+    const { ragCount, webCount } = countSourcesByType(sources)
+    logger.step('sources normalized', {
+      ragSourceCount: ragCount,
+      webSourceCount: webCount,
+      sourcesForOllama: sources.length,
+      sourceIds: sources.map(source => source.id),
+    })
+
+    let preferredStrategy: 'rag' | 'web' | 'general' | undefined
+    if (sources.length === 0) {
       preferredStrategy = 'general'
+    } else if (ragIsBad) {
+      preferredStrategy = webCount > 0 ? 'web' : 'general'
+    } else {
+      preferredStrategy = 'rag'
     }
 
     const answerResult = await timedStep(
@@ -314,32 +351,26 @@ export const chatService = {
       'llm answer generated',
       () =>
         answerService.generateAnswer({
+          originalQuestion: message,
           questionDe,
-          contextsDe,
-          ragSources: answerSources,
+          outputLanguage,
+          sources,
           history: ragHistory,
           isPhoneCall,
           ...(preferredStrategy ? { preferredStrategy } : {}),
         }),
       result => ({
         sourceStrategy: result.sourceStrategy,
+        language: result.language,
+        titleChars: result.title.length,
         sourceCount: result.sources.length,
-        answerDeChars: result.answer.length,
-        answerDePreview: summarizeText(result.answer),
+        sourceIds: result.sources.map(source => source.id),
+        answerChars: result.answer.length,
+        answerPreview: summarizeText(result.answer),
       }),
     )
 
-    const responseMessage = (
-      await timedStep(
-        logger,
-        'answer translated DE→HSB',
-        () => sotraClient.translateDeToHsb(answerResult.answer),
-        result => ({
-          answerHsbChars: result.length,
-          answerHsbPreview: summarizeText(result),
-        }),
-      )
-    ).trim()
+    const responseMessage = answerResult.answer.trim()
 
     if (ipAddress) {
       rememberHistoryTurn({
@@ -361,12 +392,17 @@ export const chatService = {
 
     logger.done({
       sourceStrategy: answerResult.sourceStrategy,
-      contextCount: ragResponse.contexts.length,
-      sourceCount: answerResult.sources.length,
+      ragSourceCount: ragCount,
+      webSourceCount: webCount,
+      sourcesForOllama: sources.length,
+      finalSourceCount: answerResult.sources.length,
       responseChars: responseMessage.length,
     })
 
     return {
+      language: answerResult.language,
+      title: answerResult.title,
+      answer: responseMessage,
       message: responseMessage,
       timestamp: new Date().toISOString(),
       sources: answerResult.sources,

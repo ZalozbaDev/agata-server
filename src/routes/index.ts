@@ -52,21 +52,37 @@ router.post('/chat', async (req: Request, res: Response) => {
   console.log('Received message:', message, 'from IP:', ipAddress)
 
   try {
-    const chatInput: { message: string; persist: boolean; ipAddress?: string } =
-      {
-        message: message ?? '',
-        persist: true,
-      }
+    const chatInput: {
+      message: string
+      persist: boolean
+      ipAddress?: string
+      outputLanguage?: 'hsb' | 'de'
+    } = {
+      message: message ?? '',
+      persist: true,
+    }
 
     if (ipAddress) chatInput.ipAddress = ipAddress
 
+    const bodyLanguage = (req.body as { outputLanguage?: string }).outputLanguage
+    if (bodyLanguage === 'hsb' || bodyLanguage === 'de') {
+      chatInput.outputLanguage = bodyLanguage
+    }
+
     const result = await chatService.handleChat(chatInput)
 
-    // Keep response shape stable
-    res.send(result)
+    res.json(result)
   } catch (error) {
-    console.error('Error in /chat:', error)
-    res.status(500).send({ error: 'Failed to process chat message' })
+    const messageText = error instanceof Error ? error.message : String(error)
+    console.error('Error in /chat:', messageText)
+    res.status(500).json({
+      error: 'Failed to process chat message',
+      message: messageText.includes('LLM request failed')
+        ? 'The language model is currently unavailable'
+        : messageText.includes('Invalid LLM JSON')
+          ? 'The language model returned an invalid response'
+          : 'Failed to process chat message',
+    })
   }
 })
 
