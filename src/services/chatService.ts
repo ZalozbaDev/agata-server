@@ -212,8 +212,8 @@ async function questionToGerman(
 }
 
 /**
- * Translate RAG context snippets to German for retrieval/LLM when needed.
- * Snippets stay server-side as source content; URLs are never sent to the LLM.
+ * Ensure RAG snippets are German for the LLM prompt.
+ * Already-German contexts are left untouched; only HSB snippets are translated.
  */
 async function translateRagSnippetsToGerman(
   contexts: string[],
@@ -223,19 +223,33 @@ async function translateRagSnippetsToGerman(
 
   return timedStep(
     logger,
-    'contexts translated HSB→DE',
+    'contexts prepared for LLM (HSB→DE only when needed)',
     () =>
       Promise.all(
-        contexts.map(context => sotraClient.translateHsbToDe(context)),
-      ),
+        contexts.map(async context => {
+          if (detectQueryLanguage(context) === 'de') {
+            return { text: context, translated: false }
+          }
+          return {
+            text: await sotraClient.translateHsbToDe(context),
+            translated: true,
+          }
+        }),
+      ).then(prepared => ({
+        texts: prepared.map(item => item.text),
+        translatedHsbToDe: prepared.filter(item => item.translated).length,
+        skippedAlreadyDe: prepared.filter(item => !item.translated).length,
+      })),
     result => ({
-      translatedContextCount: result.length,
-      translatedContextChars: result.map(context => context.length),
-      translatedContextPreviews: result.map(context =>
+      contextCount: result.texts.length,
+      translatedHsbToDe: result.translatedHsbToDe,
+      skippedAlreadyDe: result.skippedAlreadyDe,
+      contextChars: result.texts.map(context => context.length),
+      contextPreviews: result.texts.map(context =>
         summarizeText(context, 250),
       ),
     }),
-  )
+  ).then(result => result.texts)
 }
 
 export const chatService = {
