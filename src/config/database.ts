@@ -1,44 +1,44 @@
 import mongoose from 'mongoose'
 
-const buildMongoURI = (): string => {
-  const username = process.env['MONGODB_USERNAME']
-  const password = process.env['MONGODB_PASSWORD']
-  const host = process.env['MONGODB_HOST']
+const isAtlasHost = (host: string) => host.includes('.mongodb.net')
 
-  if (!username || !password || !host) {
+const buildMongoUri = () => {
+  const {
+    MONGODB_URI,
+    MONGODB_USERNAME,
+    MONGODB_PASSWORD,
+    MONGODB_HOST,
+    MONGODB_DATABASE,
+  } = process.env
+
+  if (MONGODB_URI) {
+    return MONGODB_URI
+  }
+
+  if (!MONGODB_USERNAME || !MONGODB_PASSWORD || !MONGODB_HOST) {
     throw new Error(
-      'Missing MongoDB config: MONGODB_USERNAME, MONGODB_PASSWORD, and MONGODB_HOST are required',
+      'Missing MongoDB config: set MONGODB_URI or MONGODB_USERNAME, MONGODB_PASSWORD, and MONGODB_HOST',
     )
   }
 
-  return `mongodb://${encodeURIComponent(username)}:${encodeURIComponent(password)}@${host}`
+  const user = encodeURIComponent(MONGODB_USERNAME)
+  const pass = encodeURIComponent(MONGODB_PASSWORD)
+  const host = isAtlasHost(MONGODB_HOST)
+    ? MONGODB_HOST.replace(/:\d+$/, '')
+    : MONGODB_HOST
+  const protocol = isAtlasHost(MONGODB_HOST) ? 'mongodb+srv' : 'mongodb'
+  const database = MONGODB_DATABASE ? `/${MONGODB_DATABASE}` : ''
+
+  const authSource = MONGODB_DATABASE ? `?authSource=${MONGODB_DATABASE}` : ''
+  return `${protocol}://${user}:${pass}@${host}${database}${authSource}`
 }
 
-export const connectDB = async (): Promise<void> => {
+export const connectDB = async () => {
   try {
-    const mongoURI = buildMongoURI()
-
-    await mongoose.connect(mongoURI)
-
-    console.log('✅ MongoDB connected successfully')
-
-    // Handle connection events
-    mongoose.connection.on('error', error => {
-      console.error('❌ MongoDB connection error:', error)
-    })
-
-    mongoose.connection.on('disconnected', () => {
-      console.log('⚠️ MongoDB disconnected')
-    })
-
-    // Graceful shutdown
-    process.on('SIGINT', async () => {
-      await mongoose.connection.close()
-      console.log('🔌 MongoDB connection closed through app termination')
-      process.exit(0)
-    })
+    await mongoose.connect(buildMongoUri())
+    console.log('🚀 Connected to MongoDB')
   } catch (error) {
-    console.error('❌ Failed to connect to MongoDB:', error)
+    console.log('❌ Error connecting to MongoDB:', error)
     process.exit(1)
   }
 }
