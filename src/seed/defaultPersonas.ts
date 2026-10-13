@@ -1,7 +1,10 @@
 import { DEFAULT_PERSONA_ID, SIP_PERSONA_ID } from '../config/personas'
 import { Persona } from '../models/Persona'
 import { generatePersonaToken } from '../services/personaPolicy'
-import { MAIN_PERSONA_PROMPT, SIP_PERSONA_PROMPT } from './defaultPersonaPrompts'
+import {
+  MAIN_PERSONA_PROMPT,
+  SIP_PERSONA_PROMPT,
+} from './defaultPersonaPrompts'
 
 const DEFAULT_COLLECTION = 'documents'
 
@@ -29,14 +32,14 @@ export async function seedDefaultPersonas(): Promise<void> {
         slug: seed.slug,
         prompt: seed.prompt,
         token: generatePersonaToken(),
-        topK: 6,
-        webResultCount: 2,
+        topK: 5,
+        webResultCount: 5,
         webFallbackResultCount: 5,
         allowGeneralKnowledge: true,
         ragCollection: DEFAULT_COLLECTION,
         protected: true,
         tag: '',
-        visibility: 'public',
+        visibility: 'private',
         allowExternalDelete: false,
       })
       continue
@@ -48,7 +51,8 @@ export async function seedDefaultPersonas(): Promise<void> {
       prompt?: string
     } = {}
     if (existing.protected !== true) patch.protected = true
-    if (!existing.ragCollection?.trim()) patch.ragCollection = DEFAULT_COLLECTION
+    if (!existing.ragCollection?.trim())
+      patch.ragCollection = DEFAULT_COLLECTION
     if (!existing.prompt?.trim()) patch.prompt = seed.prompt
     if (Object.keys(patch).length > 0) {
       await Persona.updateOne({ _id: existing._id }, { $set: patch })

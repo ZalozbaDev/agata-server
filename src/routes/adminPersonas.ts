@@ -17,10 +17,6 @@ router.get('/', async (_req: Request, res: Response) => {
   }
 })
 
-router.post('/token', async (_req: Request, res: Response) => {
-  res.json(personaService.generateToken())
-})
-
 router.post('/', async (req: Request, res: Response) => {
   try {
     const persona = await personaService.create(req.body ?? {})

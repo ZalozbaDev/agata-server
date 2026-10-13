@@ -8,7 +8,6 @@ import {
 export type PersonaVisibility = 'public' | 'private'
 export type PersonaActor = 'admin' | 'token'
 
-export const PERSONA_TOKEN_PATTERN = /^[A-Za-z0-9_-]{16,128}$/
 /** Short webview key: `schule`, `kindergarten`, `spielplatz`. */
 export const PERSONA_SLUG_PATTERN = /^[a-z0-9][a-z0-9-]{0,30}[a-z0-9]$/
 export function isSystemPersonaSlug(value: string | undefined | null): boolean {
@@ -51,7 +50,6 @@ export type PersonaWriteInput = {
   name?: unknown
   slug?: unknown
   prompt?: unknown
-  token?: unknown
   topK?: unknown
   webResultCount?: unknown
   tag?: unknown
@@ -63,7 +61,6 @@ export type NormalizedPersona = {
   name: string
   slug: string
   prompt: string
-  token: string | null
   topK: number
   webResultCount: number
   tag: string
@@ -418,23 +415,6 @@ function readSlug(
   return slug
 }
 
-function readToken(value: unknown, mode: 'create' | 'update'): string | null | undefined {
-  if (value === undefined || value === null || value === '') {
-    return mode === 'create' ? null : undefined
-  }
-  if (typeof value !== 'string') {
-    throw new HttpError(400, 'Der Token muss ein Text sein.')
-  }
-  const trimmed = value.trim()
-  if (!PERSONA_TOKEN_PATTERN.test(trimmed)) {
-    throw new HttpError(
-      400,
-      'Der Token muss 16 bis 128 Zeichen haben und darf nur Buchstaben, Ziffern, _ und - enthalten.',
-    )
-  }
-  return trimmed
-}
-
 export function parseCreatePersona(input: PersonaWriteInput): NormalizedPersona {
   const visibility = readVisibility(input.visibility, true) ?? 'private'
   const topK = readTopK(input.topK, true)
@@ -447,7 +427,6 @@ export function parseCreatePersona(input: PersonaWriteInput): NormalizedPersona 
     name: readString(input.name, 'Name', MAX_NAME_LENGTH, true),
     slug,
     prompt: readString(input.prompt, 'Prompt', MAX_PROMPT_LENGTH, false),
-    token: readToken(input.token, 'create') ?? null,
     topK,
     webResultCount: readWebResultCount(input.webResultCount, false) ?? MIN_WEB_RESULTS,
     tag: readString(input.tag, 'Tag', MAX_TAG_LENGTH, false),
@@ -468,13 +447,6 @@ export function parseUpdatePersona(
   }
   if ('prompt' in input) {
     next.prompt = readString(input.prompt, 'Prompt', MAX_PROMPT_LENGTH, false)
-  }
-  if ('token' in input) {
-    const token = readToken(input.token, 'update')
-    if (token === undefined) {
-      throw new HttpError(400, 'Der Token darf nicht leer sein.')
-    }
-    next.token = token
   }
   if ('topK' in input) {
     const topK = readTopK(input.topK, true)

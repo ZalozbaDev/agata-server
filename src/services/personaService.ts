@@ -172,7 +172,6 @@ async function savePersona(persona: IPersona): Promise<IPersona> {
 function applyNormalized(
   persona: IPersona,
   next: Partial<NormalizedPersona>,
-  generatedToken: string | null,
 ): void {
   if (next.name !== undefined) persona.name = next.name
   if (next.slug !== undefined) persona.slug = next.slug
@@ -189,15 +188,9 @@ function applyNormalized(
   if (next.allowExternalDelete !== undefined) {
     persona.allowExternalDelete = next.allowExternalDelete
   }
-  if (generatedToken) persona.token = generatedToken
-  else if (typeof next.token === 'string') persona.token = next.token
 }
 
 export const personaService = {
-  generateToken(): { token: string } {
-    return { token: generatePersonaToken() }
-  },
-
   async list(): Promise<AdminPersonaDto[]> {
     const personas = await PersonaModel.find().sort({ updatedAt: -1 })
     const counts = await documentCounts(personas.map(persona => idOf(persona)))
@@ -217,7 +210,7 @@ export const personaService = {
       name: parsed.name,
       slug: parsed.slug,
       prompt: parsed.prompt,
-      token: parsed.token ?? generatePersonaToken(),
+      token: generatePersonaToken(),
       topK: parsed.topK,
       webResultCount: parsed.webResultCount,
       tag: parsed.tag,
@@ -242,7 +235,7 @@ export const personaService = {
         throw new HttpError(400, 'Dieser Kurzname ist für eine feste Persona reserviert.')
       }
     }
-    applyNormalized(persona, parsed, null)
+    applyNormalized(persona, parsed)
     const saved = await savePersona(persona)
     return toAdminDto(saved, await countFor(idOf(saved)))
   },
