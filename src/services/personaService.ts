@@ -1,5 +1,9 @@
 import { Types } from 'mongoose'
-import { isKnownPersona, resolvePersona, type Persona } from '../config/personas'
+import {
+  DEFAULT_PERSONA_ID,
+  SIP_PERSONA_ID,
+  type Persona,
+} from '../config/personas'
 import { Persona as PersonaModel, type IPersona } from '../models/Persona'
 import {
   PersonaDocument,
@@ -28,6 +32,7 @@ import {
   isDuplicateSlugError,
   isDuplicateTokenError,
   isManagedPersonaId,
+  isSystemPersonaSlug,
   normalizePersonaSlug,
   parseCreatePersona,
   PERSONA_SLUG_PATTERN,
@@ -51,6 +56,7 @@ export type AdminPersonaDto = {
   tag: string
   visibility: 'public' | 'private'
   allowExternalDelete: boolean
+  protected: boolean
   documentCount: number
   createdAt: string
   updatedAt: string
@@ -92,6 +98,7 @@ function toAdminDto(persona: IPersona, documentCount: number): AdminPersonaDto {
     tag: persona.tag ?? '',
     visibility: persona.visibility,
     allowExternalDelete: persona.allowExternalDelete,
+    protected: persona.protected === true || isSystemPersonaSlug(persona.slug),
     documentCount,
     createdAt: iso(persona.createdAt),
     updatedAt: iso(persona.updatedAt),
@@ -171,7 +178,12 @@ function applyNormalized(
   if (next.slug !== undefined) persona.slug = next.slug
   if (next.prompt !== undefined) persona.prompt = next.prompt
   if (next.topK !== undefined) persona.topK = next.topK
-  if (next.webResultCount !== undefined) persona.webResultCount = next.webResultCount
+  if (next.webResultCount !== undefined) {
+    if (next.webResultCount !== persona.webResultCount) {
+      persona.webFallbackResultCount = next.webResultCount
+    }
+    persona.webResultCount = next.webResultCount
+  }
   if (next.tag !== undefined) persona.tag = next.tag
   if (next.visibility !== undefined) persona.visibility = next.visibility
   if (next.allowExternalDelete !== undefined) {
@@ -219,6 +231,17 @@ export const personaService = {
   async update(id: string, input: PersonaWriteInput): Promise<AdminPersonaDto> {
     const persona = await requirePersona(id)
     const parsed = parseUpdatePersona(input)
+    if (parsed.slug && parsed.slug !== (persona.slug ?? '')) {
+      if (persona.protected || isSystemPersonaSlug(persona.slug)) {
+        throw new HttpError(
+          400,
+          'Der Kurzname von Main und Sip kann nicht geändert werden.',
+        )
+      }
+      if (isSystemPersonaSlug(parsed.slug)) {
+        throw new HttpError(400, 'Dieser Kurzname ist für eine feste Persona reserviert.')
+      }
+    }
     applyNormalized(persona, parsed, null)
     const saved = await savePersona(persona)
     return toAdminDto(saved, await countFor(idOf(saved)))
@@ -293,7 +316,10 @@ export const personaService = {
 
   async remove(id: string): Promise<void> {
     const persona = await requirePersona(id)
-    const collection = collectionNameForPersona(idOf(persona))
+    if (persona.protected || isSystemPersonaSlug(persona.slug)) {
+      throw new HttpError(403, 'Main und Sip können nicht gelöscht werden.')
+    }
+    const collection = ragCollectionFor(persona)
     const documents = await PersonaDocument.find(scopedDocumentQuery(idOf(persona)))
     await deletePersonaCollection(collection)
     for (const document of documents) {
@@ -343,7 +369,7 @@ export const personaService = {
 
     const filename = sanitizeFilename(file.originalname || 'dokument')
     const classified = classifyUpload(filename, file.mimetype || '')
-    const collection = collectionNameForPersona(idOf(persona))
+    const collection = ragCollectionFor(persona)
     const indexed = await indexPersonaDocument({
       collection,
       filename,
@@ -427,7 +453,7 @@ export const personaService = {
       scopedDocumentQuery(idOf(persona), documentId),
     )
     if (!document) throw new HttpError(404, 'Dokument nicht gefunden.')
-    const collection = collectionNameForPersona(idOf(persona))
+    const collection = ragCollectionFor(persona)
     await deletePersonaSource(collection, document.ragSourceId)
     await deleteStoredFile(document.fileId).catch(error => {
       console.error(
@@ -503,7 +529,13 @@ export const personaService = {
     id: string | undefined | null,
     options?: { allowPrivate?: boolean },
   ): Promise<Persona> {
-    if (isKnownPersona(id)) return resolvePersona(id)
+    const requested = String(id ?? '').trim().toLowerCase()
+    if (!requested || requested === DEFAULT_PERSONA_ID) {
+      return requireSystemPersona(DEFAULT_PERSONA_ID)
+    }
+    if (requested === SIP_PERSONA_ID) {
+      return requireSystemPersona(SIP_PERSONA_ID)
+    }
 
     const normalized = String(id ?? '').trim()
     const slug = normalizePersonaSlug(normalized)
@@ -525,7 +557,9 @@ export const personaService = {
       throw new HttpError(503, 'Die Persona konnte nicht geladen werden.')
     }
     if (!doc) {
-      if (lookupBySlug || !isManagedPersonaId(normalized)) return resolvePersona(id)
+      if (lookupBySlug || !isManagedPersonaId(normalized)) {
+        return requireSystemPersona(DEFAULT_PERSONA_ID)
+      }
       throw new HttpError(404, 'Persona nicht gefunden.')
     }
     if (lookupBySlug) return runtimeFromDocument(doc)
@@ -540,7 +574,10 @@ export const personaService = {
   async publicName(key: string): Promise<string | null> {
     const normalized = key.trim().toLowerCase()
     if (!normalized || normalized.length > 128) return null
-    if (isKnownPersona(normalized)) return resolvePersona(normalized).label
+    if (normalized === DEFAULT_PERSONA_ID || normalized === SIP_PERSONA_ID) {
+      const persona = await PersonaModel.findOne({ slug: normalized }).select('name')
+      return persona?.name?.trim() || null
+    }
 
     try {
       const persona = PERSONA_SLUG_PATTERN.test(normalized)
@@ -560,8 +597,23 @@ export const personaService = {
   },
 }
 
+function ragCollectionFor(persona: IPersona): string {
+  const named = persona.ragCollection?.trim()
+  if (named) return named
+  return collectionNameForPersona(idOf(persona))
+}
+
+async function requireSystemPersona(slug: string): Promise<Persona> {
+  const doc = await PersonaModel.findOne({ slug })
+  if (!doc) {
+    throw new HttpError(503, 'Die Standard-Persona ist nicht vorhanden.')
+  }
+  return runtimeFromDocument(doc)
+}
+
 function runtimeFromDocument(doc: IPersona): Persona {
   const mongoId = idOf(doc)
+  const webFallback = doc.webFallbackResultCount
   return toRuntimePersona({
     id: doc.slug || mongoId,
     collectionId: mongoId,
@@ -569,6 +621,9 @@ function runtimeFromDocument(doc: IPersona): Persona {
     prompt: doc.prompt ?? '',
     topK: doc.topK,
     webResultCount: doc.webResultCount ?? 0,
+    allowGeneralKnowledge: doc.allowGeneralKnowledge === true,
+    ...(doc.ragCollection?.trim() ? { collection: doc.ragCollection.trim() } : {}),
+    ...(typeof webFallback === 'number' ? { webFallbackResultCount: webFallback } : {}),
   })
 }
 

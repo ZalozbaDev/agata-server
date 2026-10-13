@@ -4,6 +4,7 @@ import WebSocket from 'ws'
 import { decode as decodeWav } from 'wav-decoder'
 import * as fs from 'node:fs'
 import * as path from 'node:path'
+import { SIP_PERSONA_ID } from '../config/personas'
 import { chatService } from '../services/chatService'
 import { generateBamborakAudioFromText } from '../services/bamborakService'
 import { Visitor } from '../models/Visitor'
@@ -1009,6 +1010,7 @@ export function startSipClientBridge(): void {
             persist: true,
             ipAddress: session.visitorIpAddress,
             isPhoneCall: true,
+            personaId: SIP_PERSONA_ID,
           })
           replyText = result.message || null
         } catch (e) {

@@ -12,7 +12,7 @@ import {
   validateOllamaAnswer,
 } from './sourceService'
 import type { AnswerLanguage, Source } from '../types/source'
-import { getDefaultPersona, type Persona } from '../config/personas'
+import type { Persona } from '../config/personas'
 import { chatTimingLog } from '../utils/chatTimingLogger'
 
 export type AnswerResult = {
@@ -22,10 +22,6 @@ export type AnswerResult = {
   sources: Source[]
   sourceStrategy: 'rag' | 'web' | 'general'
 }
-
-const PHONE_CALL_SYSTEM_ADDON =
-  '\n\nWICHTIG (Telefonat): Halte die Antwort extrem kurz (max. 2 kurze Sätze). ' +
-  'Keine Listen. Keine langen Erklärungen. Stelle höchstens eine kurze Rückfrage.'
 
 const DEFAULT_HISTORY_MAX_ITEMS = 6
 const PHONE_HISTORY_MAX_ITEMS = 4
@@ -37,7 +33,6 @@ function todayIso(): string {
 }
 
 function buildResearchSystemPrompt(params: {
-  isPhoneCall: boolean
   mode: 'rag' | 'web'
   hasWebSources: boolean
   persona: Persona
@@ -117,17 +112,10 @@ function buildResearchSystemPrompt(params: {
     'title ist eine kurze Überschrift von höchstens 60 Zeichen ohne abschließenden Punkt.\n' +
     'sources_used enthält ausschließlich die Source-IDs, die tatsächlich im Antworttext belegt werden.'
 
-  if (params.isPhoneCall) {
-    prompt += PHONE_CALL_SYSTEM_ADDON
-  }
-
   return prompt
 }
 
-function buildGeneralSystemPrompt(
-  isPhoneCall: boolean,
-  persona: Persona,
-): string {
+function buildGeneralSystemPrompt(persona: Persona): string {
   let prompt =
     `Heutiges Datum: ${todayIso()}. ` +
     `${persona.description}\n` +
@@ -138,10 +126,6 @@ function buildGeneralSystemPrompt(
     'Formatiere den Antworttext in einfachem Markdown (Absätze, "- " Listen, **fett**).\n' +
     'OUTPUT: Gib ausschließlich JSON mit language, title, answer und sources_used zurück. ' +
     'sources_used muss ein leeres Array sein.'
-
-  if (isPhoneCall) {
-    prompt += PHONE_CALL_SYSTEM_ADDON
-  }
 
   return prompt
 }
@@ -280,7 +264,6 @@ function buildAnswerMessages(params: {
     {
       role: 'system',
       content: buildResearchSystemPrompt({
-        isPhoneCall: params.isPhoneCall,
         mode: params.mode,
         hasWebSources: params.sources.some(source => source.type === 'web'),
         persona: params.persona,
@@ -317,7 +300,10 @@ export const answerService = {
     preferredStrategy?: 'rag' | 'web' | 'general'
     persona?: Persona
   }): Promise<AnswerResult> {
-    const persona = params.persona ?? getDefaultPersona()
+    const persona = params.persona
+    if (!persona) {
+      throw new Error('Persona fehlt.')
+    }
     let sourceStrategy = resolveStrategy(
       params.sources,
       params.preferredStrategy,
@@ -345,7 +331,7 @@ export const answerService = {
       const messages: ChatMessage[] = [
         {
           role: 'system',
-          content: buildGeneralSystemPrompt(params.isPhoneCall, persona),
+          content: buildGeneralSystemPrompt(persona),
         },
         ...historyMessages(params.history, params.isPhoneCall),
         {

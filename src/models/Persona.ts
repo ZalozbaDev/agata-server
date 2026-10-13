@@ -11,6 +11,13 @@ export interface IPersona extends Document {
   topK: number
   /** DuckDuckGo results per answer. 0 disables web search. */
   webResultCount: number
+  /** Used when RAG returned nothing. Falls back to webResultCount when unset. */
+  webFallbackResultCount?: number
+  /** Qdrant collection. Empty means the managed persona_<id> collection. */
+  ragCollection?: string
+  allowGeneralKnowledge: boolean
+  /** Main and Sip cannot be deleted. */
+  protected: boolean
   imageFileId?: mongoose.Types.ObjectId
   imageMimeType?: string
   tag: string
@@ -58,6 +65,24 @@ const personaSchema = new Schema<IPersona>(
       default: 0,
       min: 0,
       max: 20,
+    },
+    webFallbackResultCount: {
+      type: Number,
+      min: 0,
+      max: 20,
+    },
+    ragCollection: {
+      type: String,
+      trim: true,
+      maxlength: 80,
+    },
+    allowGeneralKnowledge: {
+      type: Boolean,
+      default: false,
+    },
+    protected: {
+      type: Boolean,
+      default: false,
     },
     imageFileId: {
       type: Schema.Types.ObjectId,

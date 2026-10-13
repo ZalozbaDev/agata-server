@@ -1,5 +1,9 @@
 import { randomBytes, timingSafeEqual } from 'crypto'
-import { PERSONAS, type Persona } from '../config/personas'
+import {
+  DEFAULT_PERSONA_ID,
+  SIP_PERSONA_ID,
+  type Persona,
+} from '../config/personas'
 
 export type PersonaVisibility = 'public' | 'private'
 export type PersonaActor = 'admin' | 'token'
@@ -7,7 +11,10 @@ export type PersonaActor = 'admin' | 'token'
 export const PERSONA_TOKEN_PATTERN = /^[A-Za-z0-9_-]{16,128}$/
 /** Short webview key: `schule`, `kindergarten`, `spielplatz`. */
 export const PERSONA_SLUG_PATTERN = /^[a-z0-9][a-z0-9-]{0,30}[a-z0-9]$/
-const RESERVED_PERSONA_SLUGS = new Set(PERSONAS.map(persona => persona.id))
+export function isSystemPersonaSlug(value: string | undefined | null): boolean {
+  const slug = String(value ?? '').trim().toLowerCase()
+  return slug === DEFAULT_PERSONA_ID || slug === SIP_PERSONA_ID
+}
 export const MANAGED_PERSONA_ID_PATTERN = /^[a-f0-9]{24}$/
 export const MAX_PROMPT_LENGTH = 20_000
 export const MAX_NAME_LENGTH = 120
@@ -252,23 +259,34 @@ export function toRuntimePersona(persona: {
   id: string
   /** Mongo id that owns the Qdrant collection. Defaults to `id`. */
   collectionId?: string
+  /** Fixed collection such as the shared `documents` index. */
+  collection?: string
   name: string
   prompt: string
   topK: number
   webResultCount?: number
+  webFallbackResultCount?: number
+  allowGeneralKnowledge?: boolean
 }): Persona {
   const prompt = persona.prompt.trim()
   const webResultCount = normalizeWebResultCount(persona.webResultCount)
+  const webFallback =
+    persona.webFallbackResultCount === undefined
+      ? webResultCount
+      : normalizeWebResultCount(persona.webFallbackResultCount)
+  const namedCollection = persona.collection?.trim()
   return {
     id: persona.id,
     label: persona.name,
-    collection: collectionNameForPersona(persona.collectionId ?? persona.id),
+    collection:
+      namedCollection ||
+      collectionNameForPersona(persona.collectionId ?? persona.id),
     ragTopK: persona.topK,
     webResultCount,
-    webFallbackResultCount: webResultCount,
+    webFallbackResultCount: webFallback,
     language: 'auto',
     description: prompt || FALLBACK_PROMPT,
-    allowGeneralKnowledge: false,
+    allowGeneralKnowledge: persona.allowGeneralKnowledge === true,
   }
 }
 
@@ -375,7 +393,11 @@ function readBoolean(value: unknown, label: string): boolean | undefined {
   return value
 }
 
-function readSlug(value: unknown, required: boolean): string | undefined {
+function readSlug(
+  value: unknown,
+  required: boolean,
+  allowSystemSlug = false,
+): string | undefined {
   if (value === undefined || value === null || (typeof value === 'string' && !value.trim())) {
     if (required) throw new HttpError(400, 'Der Kurzname ist ein Pflichtfeld.')
     return undefined
@@ -390,7 +412,7 @@ function readSlug(value: unknown, required: boolean): string | undefined {
       'Der Kurzname muss 2 bis 32 Zeichen haben und darf nur Buchstaben, Ziffern und Bindestriche enthalten.',
     )
   }
-  if (RESERVED_PERSONA_SLUGS.has(slug)) {
+  if (!allowSystemSlug && isSystemPersonaSlug(slug)) {
     throw new HttpError(400, 'Dieser Kurzname ist für eine feste Persona reserviert.')
   }
   return slug
@@ -440,7 +462,7 @@ export function parseUpdatePersona(
   const next: Partial<NormalizedPersona> = {}
   if ('name' in input) next.name = readString(input.name, 'Name', MAX_NAME_LENGTH, true)
   if ('slug' in input) {
-    const slug = readSlug(input.slug, true)
+    const slug = readSlug(input.slug, true, true)
     if (!slug) throw new HttpError(400, 'Der Kurzname darf nicht leer sein.')
     next.slug = slug
   }

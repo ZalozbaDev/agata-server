@@ -3,6 +3,7 @@ import express from 'express'
 import cors from 'cors'
 import helmet from 'helmet'
 import { connectDB } from './config/database'
+import { seedDefaultPersonas } from './seed/defaultPersonas'
 import { errorHandler } from './middleware/errorHandler'
 import routes from './routes'
 import http from 'http'
@@ -47,6 +48,7 @@ const startServer = async (): Promise<void> => {
   try {
     // Connect to database
     await connectDB()
+    await seedDefaultPersonas()
 
     // Start SIP-client (Asterisk) phone bridge
     if (process.env['SIP_ENABLED'] === 'true') {

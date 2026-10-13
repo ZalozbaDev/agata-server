@@ -8,10 +8,7 @@ import { FetchedData } from '../models/FetchedData'
 import bamborakRoutes from './bamborak'
 import hooksRoutes from './hooks'
 import { chatService } from '../services/chatService'
-import {
-  DEFAULT_PERSONA_ID,
-  personaSummaries,
-} from '../config/personas'
+import { DEFAULT_PERSONA_ID } from '../config/personas'
 import { HttpError } from '../services/personaPolicy'
 import adminPersonaRoutes from './adminPersonas'
 import personaTokenRoutes from './personaToken'
@@ -56,7 +53,7 @@ router.get('/', (_req: Request, res: Response) => {
 router.get('/personas', (_req: Request, res: Response) => {
   res.json({
     default: DEFAULT_PERSONA_ID,
-    personas: personaSummaries(),
+    personas: [],
   })
 })
 

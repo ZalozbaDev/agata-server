@@ -3,7 +3,7 @@ import { Prompt } from '../models/Prompt'
 import { Visitor } from '../models/Visitor'
 import { answerService } from './answerService'
 import { searchDuckDuckGo } from './duckDuckGoClient'
-import { resolveOutputLanguage, type Persona } from '../config/personas'
+import { resolveOutputLanguage, SIP_PERSONA_ID, type Persona } from '../config/personas'
 import { chatHistoryKey } from './personaPolicy'
 import { personaService } from './personaService'
 import { sotraClient } from './sotraClient'
@@ -45,7 +45,7 @@ export type ChatServiceInput = {
   isPhoneCall?: boolean
   /** Explicit UI language overrides detection when provided */
   outputLanguage?: AnswerLanguage
-  /** Unknown ids fall back to the default persona. Managed ids are loaded from MongoDB. */
+  /** Missing ids use Main. Phone calls use Sip. Managed ids are loaded from MongoDB. */
   personaId?: string
   /** Set only after the admin middleware has already authorized the caller. */
   allowPrivatePersona?: boolean
@@ -291,9 +291,10 @@ async function translateRagSnippetsToGerman(
 export const chatService = {
   async handleChat(input: ChatServiceInput): Promise<ChatServiceResult> {
     const message = (input.message ?? '').trim()
-    const persona = await personaService.resolveChatPersona(input.personaId, {
-      allowPrivate: input.allowPrivatePersona === true,
-    })
+    const persona = await personaService.resolveChatPersona(
+      input.isPhoneCall ? SIP_PERSONA_ID : input.personaId,
+      { allowPrivate: input.allowPrivatePersona === true },
+    )
     if (!message) {
       return {
         language: persona.language === 'auto' ? 'hsb' : persona.language,
