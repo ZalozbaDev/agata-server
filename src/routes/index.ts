@@ -8,6 +8,10 @@ import { FetchedData } from '../models/FetchedData'
 import bamborakRoutes from './bamborak'
 import hooksRoutes from './hooks'
 import { chatService } from '../services/chatService'
+import {
+  DEFAULT_PERSONA_ID,
+  personaSummaries,
+} from '../config/personas'
 
 const router = Router()
 
@@ -30,6 +34,7 @@ router.get('/', (_req: Request, res: Response) => {
       health: '/health',
       urls: '/api/urls',
       chat: '/api/chat',
+      personas: '/api/personas',
       fetchData: '/api/fetch-data',
       data: '/api/data',
       bamborak: '/api/bamborak',
@@ -43,13 +48,19 @@ router.get('/', (_req: Request, res: Response) => {
   })
 })
 
+router.get('/personas', (_req: Request, res: Response) => {
+  res.json({
+    default: DEFAULT_PERSONA_ID,
+    personas: personaSummaries(),
+  })
+})
+
 router.post('/chat', async (req: Request, res: Response) => {
-  const { message, ipAddress } = req.body as {
+  const { message, ipAddress, persona } = req.body as {
     message?: string
     ipAddress?: string
+    persona?: string
   }
-
-  console.log('Received message:', message, 'from IP:', ipAddress)
 
   try {
     const chatInput: {
@@ -57,12 +68,14 @@ router.post('/chat', async (req: Request, res: Response) => {
       persist: boolean
       ipAddress?: string
       outputLanguage?: 'hsb' | 'de'
+      personaId?: string
     } = {
       message: message ?? '',
       persist: true,
     }
 
     if (ipAddress) chatInput.ipAddress = ipAddress
+    if (persona) chatInput.personaId = persona
 
     const bodyLanguage = (req.body as { outputLanguage?: string }).outputLanguage
     if (bodyLanguage === 'hsb' || bodyLanguage === 'de') {

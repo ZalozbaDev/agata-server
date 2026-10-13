@@ -8,6 +8,7 @@ export type ChatMessage = {
 export type ChatCompletionOptions = {
   /** Ollama `format` / JSON schema for structured outputs */
   format?: unknown
+  temperature?: number
 }
 
 export function getLlmProvider(): LlmProvider {
@@ -29,6 +30,11 @@ export function getOllamaChatModel(): string {
 
 export function getOllamaTimeoutMs(): number {
   return Number(process.env['OLLAMA_TIMEOUT_SECONDS'] ?? 60) * 1000
+}
+
+export function getChatTemperature(): number {
+  const raw = Number(process.env['LLM_CHAT_TEMPERATURE'])
+  return Number.isFinite(raw) ? raw : 0.2
 }
 
 function getOllamaApiKey(): string | undefined {
@@ -63,6 +69,9 @@ export async function completeOllamaChat(
       messages,
       think: false,
       stream: false,
+      options: {
+        temperature: options?.temperature ?? getChatTemperature(),
+      },
     }
     if (options?.format !== undefined) {
       body['format'] = options.format

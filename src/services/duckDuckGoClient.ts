@@ -7,10 +7,6 @@ export type DuckDuckGoResult = {
   snippet: string
 }
 
-/** DDG results when RAG also returned usable contexts */
-export const DUCKDUCKGO_WITH_RAG_COUNT = 2
-/** DDG results when RAG returned nothing usable */
-export const DUCKDUCKGO_WITHOUT_RAG_COUNT = 5
 const MAX_SNIPPET_CHARS = 600
 
 function isHttpUrl(value: string): boolean {

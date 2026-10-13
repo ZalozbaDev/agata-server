@@ -2,11 +2,12 @@ import mongoose from 'mongoose'
 import { Prompt } from '../models/Prompt'
 import { Visitor } from '../models/Visitor'
 import { answerService } from './answerService'
+import { searchDuckDuckGo } from './duckDuckGoClient'
 import {
-  DUCKDUCKGO_WITHOUT_RAG_COUNT,
-  DUCKDUCKGO_WITH_RAG_COUNT,
-  searchDuckDuckGo,
-} from './duckDuckGoClient'
+  resolveOutputLanguage,
+  resolvePersona,
+  type Persona,
+} from '../config/personas'
 import { sotraClient } from './sotraClient'
 import {
   assignSourceIds,
@@ -19,6 +20,7 @@ import { detectQueryLanguage } from '../utils/language'
 import {
   ChatTimingLogger,
   chatTimingLog,
+  logCompactChatTurn,
   summarizeText,
   timedStep,
 } from '../utils/chatTimingLogger'
@@ -35,6 +37,7 @@ export type ChatServiceResult = {
   message: string
   timestamp: string
   sources: Source[]
+  personaId: string
 }
 
 export type ChatServiceInput = {
@@ -44,6 +47,8 @@ export type ChatServiceInput = {
   isPhoneCall?: boolean
   /** Explicit UI language overrides detection when provided */
   outputLanguage?: AnswerLanguage
+  /** Unknown ids fall back to the default persona */
+  personaId?: string
 }
 
 type HistoryItem = {
@@ -57,7 +62,14 @@ type RagAskResponse = {
     source_type: string
     source_url: string
     title: string
+    source_id?: string
+    page?: number | null
+    published_at?: string | null
+    publishedAt?: string | null
+    section?: string | null
+    score?: number | null
   }[]
+  scores?: number[]
 }
 
 const MAX_CACHED_HISTORY_ITEMS = 3
@@ -76,10 +88,15 @@ function summarizeRagResponse(response: RagAskResponse) {
   return {
     contextCount: response.contexts.length,
     sourceCount: response.sources.length,
+    scores: response.scores ?? response.sources.map(source => source.score ?? null),
     sources: response.sources.map(source => ({
       source_type: source.source_type,
       source_url: source.source_url,
       title: source.title,
+      source_id: source.source_id ?? null,
+      page: source.page ?? null,
+      score: source.score ?? null,
+      published_at: source.published_at ?? source.publishedAt ?? null,
     })),
     contextChars: response.contexts.map(context => context.length),
     contextPreviews: response.contexts.map(context =>
@@ -132,6 +149,17 @@ async function persistPrompt(params: {
   input_text: string
   output_text: string
 }) {
+  // Both fields are required by the schema, so an empty generation would turn
+  // a degraded answer into a failed request.
+  if (!params.input_text.trim() || !params.output_text.trim()) {
+    chatTimingLog('prompt not persisted', {
+      reason: 'empty input or output',
+      inputChars: params.input_text.trim().length,
+      outputChars: params.output_text.trim().length,
+    })
+    return
+  }
+
   const visitor = await Visitor.findOne({ ipAddress: params.ipAddress })
   if (!visitor) return
 
@@ -147,6 +175,7 @@ async function persistPrompt(params: {
 
 async function askRagServer(
   question: string,
+  persona: Persona,
   logger: ChatTimingLogger,
 ): Promise<RagAskResponse> {
   const RAG_SERVER_URL = process.env['RAG_SERVER_URL']
@@ -157,9 +186,15 @@ async function askRagServer(
 
   const startedAt = Date.now()
   const timestamp = new Date(startedAt).toISOString()
+  // Retrieval always runs on the German translation, so BM25 must stem German.
+  const retrievalLanguage = 'de'
+
   chatTimingLog(`${timestamp} | rag request`, {
     questionChars: question.length,
     questionPreview: summarizeText(question),
+    collection: persona.collection,
+    topK: persona.ragTopK,
+    language: retrievalLanguage,
   })
 
   const controller = new AbortController()
@@ -174,6 +209,9 @@ async function askRagServer(
       signal: controller.signal,
       body: JSON.stringify({
         question,
+        collection: persona.collection,
+        top_k: persona.ragTopK,
+        language: retrievalLanguage,
       }),
     })
 
@@ -245,9 +283,7 @@ async function translateRagSnippetsToGerman(
       translatedHsbToDe: result.translatedHsbToDe,
       skippedAlreadyDe: result.skippedAlreadyDe,
       contextChars: result.texts.map(context => context.length),
-      contextPreviews: result.texts.map(context =>
-        summarizeText(context, 250),
-      ),
+      contextPreviews: result.texts.map(context => summarizeText(context, 250)),
     }),
   ).then(result => result.texts)
 }
@@ -255,15 +291,16 @@ async function translateRagSnippetsToGerman(
 export const chatService = {
   async handleChat(input: ChatServiceInput): Promise<ChatServiceResult> {
     const message = (input.message ?? '').trim()
-
+    const persona = resolvePersona(input.personaId)
     if (!message) {
       return {
-        language: 'hsb',
+        language: persona.language === 'auto' ? 'hsb' : persona.language,
         title: '',
         answer: '',
         message: '',
         timestamp: new Date().toISOString(),
         sources: [],
+        personaId: persona.id,
       }
     }
 
@@ -273,6 +310,8 @@ export const chatService = {
       questionPreview: summarizeText(message),
       isPhoneCall: input.isPhoneCall ?? false,
       hasIpAddress: Boolean(input.ipAddress),
+      persona: persona.id,
+      collection: persona.collection,
     })
 
     const ipAddress = input.ipAddress
@@ -287,18 +326,24 @@ export const chatService = {
     )
     const ragHistory = normalizeHistoryToStringArray(history)
 
-    const ragResponse = await askRagServer(message, logger)
     const queryLanguage = detectQueryLanguage(message)
-    // Explicit frontend/client language wins over detection.
-    const outputLanguage: AnswerLanguage =
-      input.outputLanguage ?? queryLanguage
-    logger.step('query language detected', { queryLanguage, outputLanguage })
+    // Persona language wins; otherwise the explicit client language, then detection.
+    const outputLanguage: AnswerLanguage = resolveOutputLanguage(
+      persona,
+      queryLanguage,
+      input.outputLanguage,
+    )
+    logger.step('query language detected', {
+      queryLanguage,
+      outputLanguage,
+      personaLanguage: persona.language,
+    })
 
     const questionDe = await timedStep(
       logger,
       queryLanguage === 'de'
         ? 'question already DE'
-        : 'question translated HSB→DE (before duckduckgo)',
+        : 'question translated HSB→DE (before retrieval)',
       () => questionToGerman(message, queryLanguage),
       result => ({
         questionDeChars: result.length,
@@ -306,41 +351,76 @@ export const chatService = {
       }),
     )
 
+    // Always retrieve with the German text, for every persona. The embedding
+    // model barely represents Upper Sorbian: measured against the same corpus,
+    // a Sorbian query reaches a cosine of ~0.22 where its German translation
+    // reaches ~0.47, which is the difference between passing and failing
+    // RETRIEVAL_SCORE_THRESHOLD. German even beats Sorbian on Sorbian
+    // documents, so there is no collection for which the original wins.
+    const ragResponse = await askRagServer(questionDe, persona, logger)
+
     const contextsDe = await translateRagSnippetsToGerman(
       ragResponse.contexts,
       logger,
     )
 
-    const ragIsBad = contextsDe.length === 0
-    const ddgCount = ragIsBad
-      ? DUCKDUCKGO_WITHOUT_RAG_COUNT
-      : DUCKDUCKGO_WITH_RAG_COUNT
-
-    const ddgResults = await timedStep(
-      logger,
-      `duckduckgo search (${ddgCount})`,
-      () => searchDuckDuckGo(questionDe, ddgCount),
-      result => ({
-        resultCount: result.length,
-        requestedCount: ddgCount,
-        ragIsBad,
-        queryPreview: summarizeText(questionDe),
-        results: result.map(item => ({
-          title: item.title,
-          url: item.url,
-          snippetPreview: summarizeText(item.snippet, 200),
-        })),
-      }),
-    )
-
     const ragSourcesNormalized = normalizeRagSources(
       contextsDe,
       ragResponse.sources,
+      ragResponse.scores,
     )
-    const webSourcesNormalized = normalizeWebSources(ddgResults)
+    const usableRagSources = ragSourcesNormalized.filter(
+      source => String(source.snippet ?? '').trim().length > 0,
+    )
+    const ragIsBad = usableRagSources.length === 0
+    const ddgCount = ragIsBad
+      ? persona.webFallbackResultCount
+      : persona.webResultCount
+
+    let ddgResults: Awaited<ReturnType<typeof searchDuckDuckGo>> = []
+
+    if (ddgCount > 0) {
+      ddgResults = await timedStep(
+        logger,
+        `duckduckgo search (${ddgCount})`,
+        () => searchDuckDuckGo(questionDe, ddgCount),
+        result => ({
+          resultCount: result.length,
+          requestedCount: ddgCount,
+          ragIsBad,
+          queryPreview: summarizeText(questionDe),
+          results: result.map(item => ({
+            title: item.title,
+            url: item.url,
+            snippetPreview: summarizeText(item.snippet, 200),
+          })),
+        }),
+      )
+
+      // If RAG is empty and the first web search fails, retry with a shorter query.
+      if (ragIsBad && ddgResults.length === 0) {
+        const fallbackQuery = questionDe.split(/\s+/).slice(0, 8).join(' ')
+        if (fallbackQuery && fallbackQuery !== questionDe) {
+          ddgResults = await timedStep(
+            logger,
+            `duckduckgo fallback search (${ddgCount})`,
+            () => searchDuckDuckGo(fallbackQuery, ddgCount),
+            result => ({
+              resultCount: result.length,
+              requestedCount: ddgCount,
+              queryPreview: summarizeText(fallbackQuery),
+            }),
+          )
+        }
+      }
+    } else {
+      logger.step('duckduckgo skipped', { reason: 'persona has web disabled' })
+    }
+
+    // RAG first (priority), then web supplements.
     const sources = assignSourceIds([
-      ...ragSourcesNormalized,
-      ...webSourcesNormalized,
+      ...usableRagSources,
+      ...normalizeWebSources(ddgResults),
     ])
 
     const { ragCount, webCount } = countSourcesByType(sources)
@@ -371,6 +451,7 @@ export const chatService = {
           sources,
           history: ragHistory,
           isPhoneCall,
+          persona,
           ...(preferredStrategy ? { preferredStrategy } : {}),
         }),
       result => ({
@@ -386,6 +467,25 @@ export const chatService = {
 
     const responseMessage = answerResult.answer.trim()
 
+    logCompactChatTurn({
+      personaId: persona.id,
+      question: message,
+      ragHits: usableRagSources.map(source => ({
+        title: source.title,
+        score: source.score ?? null,
+        page: source.page ?? null,
+        snippet: source.snippet ?? null,
+      })),
+      sentToAi: sources.map(source => ({
+        id: source.id,
+        type: source.type,
+        title: source.title,
+        snippetPreview: summarizeText(String(source.snippet ?? ''), 120),
+      })),
+      answer: responseMessage,
+      sourceStrategy: answerResult.sourceStrategy,
+    })
+
     if (ipAddress) {
       rememberHistoryTurn({
         ipAddress,
@@ -395,16 +495,25 @@ export const chatService = {
     }
 
     if (persist && ipAddress) {
-      await timedStep(logger, 'prompt persisted', () =>
-        persistPrompt({
-          ipAddress,
-          input_text: message,
-          output_text: responseMessage,
-        }),
-      )
+      // Analytics storage must never cost the user their answer.
+      try {
+        await timedStep(logger, 'prompt persisted', () =>
+          persistPrompt({
+            ipAddress,
+            input_text: message,
+            output_text: responseMessage,
+          }),
+        )
+      } catch (error) {
+        console.error(
+          'Failed to persist prompt:',
+          error instanceof Error ? error.message : String(error),
+        )
+      }
     }
 
     logger.done({
+      persona: persona.id,
       sourceStrategy: answerResult.sourceStrategy,
       ragSourceCount: ragCount,
       webSourceCount: webCount,
@@ -420,6 +529,7 @@ export const chatService = {
       message: responseMessage,
       timestamp: new Date().toISOString(),
       sources: answerResult.sources,
+      personaId: persona.id,
     }
   },
 }

@@ -4,13 +4,11 @@ export type AnswerLanguage = 'hsb' | 'de'
 /**
  * Unified source model for RAG + web results.
  *
- * Currently available from upstream:
- * - RAG: title, source_url (mapped to documentUrl), context text (snippet)
- * - Web (DuckDuckGo): title, url, snippet
+ * RAG from /ask may include: title, source_url, source_id, page, published_at, section, snippet
+ * Web (DuckDuckGo): title, url, snippet
  *
- * Not yet available (kept nullable for later):
- * - RAG: documentId, page, section
- * - Web: publishedAt, imageUrl
+ * Not yet available:
+ * - Web: publishedAt, imageUrl (unless later enriched)
  */
 export type Source = {
   id: string
@@ -28,6 +26,8 @@ export type Source = {
   documentUrl?: string | null
   page?: number | null
   section?: string | null
+  /** Retrieval score from the RAG server (when provided) */
+  score?: number | null
 
   // Both
   snippet?: string | null

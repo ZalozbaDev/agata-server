@@ -10,9 +10,16 @@ export type RawRagSource = {
   source_type: string
   source_url: string
   title: string
+  source_id?: string | null
+  page?: number | null
+  published_at?: string | null
+  publishedAt?: string | null
+  section?: string | null
+  score?: number | null
 }
 
-const SOURCE_REF_RE = /\[\[(S\d+)\]\]/g
+const SOURCE_REF_RE = /\[\[(S\d+)\]\]|\[(S\d+)\]/g
+const PAGE_IN_TITLE_RE = /(?:^|[|\-–—\s])(?:page|seite|strona)\s*(\d+)\b/i
 
 export const OLLAMA_ANSWER_JSON_SCHEMA = {
   type: 'object',
@@ -27,14 +34,14 @@ export const OLLAMA_ANSWER_JSON_SCHEMA = {
     answer: {
       type: 'string',
     },
-    sourcesUsed: {
+    sources_used: {
       type: 'array',
       items: {
         type: 'string',
       },
     },
   },
-  required: ['language', 'title', 'answer', 'sourcesUsed'],
+  required: ['language', 'title', 'answer', 'sources_used'],
   additionalProperties: false,
 } as const
 
@@ -46,17 +53,45 @@ function domainFromUrl(url: string): string | null {
   }
 }
 
-function isWebSourceType(sourceType: string): boolean {
-  return sourceType.trim().toLowerCase() === 'web'
+function parsePage(meta: RawRagSource | undefined, title: string): number | null {
+  if (typeof meta?.page === 'number' && Number.isFinite(meta.page) && meta.page > 0) {
+    return meta.page
+  }
+  const match = title.match(PAGE_IN_TITLE_RE)
+  if (match?.[1]) return Number(match[1])
+  return null
+}
+
+function parsePublishedAt(meta: RawRagSource | undefined): string | null {
+  const value = meta?.published_at ?? meta?.publishedAt
+  const trimmed = String(value ?? '').trim()
+  return trimmed || null
+}
+
+function parseScore(
+  meta: RawRagSource | undefined,
+  scores: number[] | undefined,
+  index: number,
+): number | null {
+  const fromMeta = meta?.score
+  if (typeof fromMeta === 'number' && Number.isFinite(fromMeta)) {
+    return fromMeta
+  }
+  const fromList = scores?.[index]
+  if (typeof fromList === 'number' && Number.isFinite(fromList)) {
+    return fromList
+  }
+  return null
 }
 
 /**
  * Pair RAG contexts with RAG source metadata by index.
- * Missing metadata fields (documentId, page, section) stay null.
+ * Everything from the RAG endpoint stays type "rag".
  */
 export function normalizeRagSources(
   contexts: string[],
   ragSources: RawRagSource[],
+  scores?: number[],
 ): Omit<Source, 'id'>[] {
   const count = Math.max(contexts.length, ragSources.length)
   const normalized: Omit<Source, 'id'>[] = []
@@ -66,32 +101,32 @@ export function normalizeRagSources(
     const snippet = String(contexts[i] ?? '').trim()
     const title = String(meta?.title ?? '').trim() || `Dokument ${i + 1}`
     const documentUrl = String(meta?.source_url ?? '').trim() || null
+    const documentId = String(meta?.source_id ?? '').trim() || null
+    const page = parsePage(meta, title)
+    const publishedAt = parsePublishedAt(meta)
+    const section = String(meta?.section ?? '').trim() || null
+    const score = parseScore(meta, scores, i)
 
     if (!snippet && !meta) continue
 
-    // Upstream may label web-like hits inside RAG; treat explicit "web" as web.
-    if (meta && isWebSourceType(meta.source_type)) {
-      const url = documentUrl
-      normalized.push({
-        type: 'web',
-        title,
-        url,
-        domain: url ? domainFromUrl(url) : null,
-        publishedAt: null,
-        imageUrl: null,
-        snippet: snippet || null,
-      })
-      continue
-    }
+    const domain = documentUrl ? domainFromUrl(documentUrl) : null
 
     normalized.push({
       type: 'rag',
       title,
-      documentId: null,
+      documentId,
       documentUrl,
-      page: null,
-      section: null,
+      page,
+      section,
+      publishedAt,
+      score,
       snippet: snippet || null,
+      ...(documentUrl
+        ? {
+            url: documentUrl,
+            domain,
+          }
+        : {}),
     })
   }
 
@@ -156,6 +191,7 @@ export function buildResearchUserPrompt(params: {
   originalQuestion: string
   germanTranslation: string | null
   sources: LlmSourceContent[]
+  mode?: 'rag' | 'web'
 }): string {
   const parts = [
     `OUTPUT_LANGUAGE: ${params.outputLanguage}`,
@@ -168,9 +204,25 @@ export function buildResearchUserPrompt(params: {
     parts.push('', 'GERMAN_TRANSLATION:', params.germanTranslation.trim())
   }
 
+  if (params.mode === 'rag') {
+    parts.push(
+      '',
+      'SOURCE_PRIORITY: Prefer TYPE: rag. If RAG does not answer the question, you MUST use TYPE: web. Do not claim missing information while web sources can answer.',
+    )
+  } else if (params.mode === 'web') {
+    parts.push(
+      '',
+      'SOURCE_PRIORITY: Answer from TYPE: web sources. Do not claim missing information if these sources contain an answer.',
+    )
+  }
+
   parts.push('', 'AVAILABLE_SOURCES:', '', formatSourcesForPrompt(params.sources))
 
   return parts.join('\n')
+}
+
+function sourceIdFromMatch(match: RegExpMatchArray): string | null {
+  return match[1] ?? match[2] ?? null
 }
 
 export function extractSourceRefsFromAnswer(answer: string): string[] {
@@ -178,7 +230,7 @@ export function extractSourceRefsFromAnswer(answer: string): string[] {
   const seen = new Set<string>()
 
   for (const match of answer.matchAll(SOURCE_REF_RE)) {
-    const id = match[1]
+    const id = sourceIdFromMatch(match)
     if (!id || seen.has(id)) continue
     seen.add(id)
     ids.push(id)
@@ -191,9 +243,12 @@ export function stripInvalidSourceRefs(
   answer: string,
   validIds: Set<string>,
 ): string {
-  return answer.replace(SOURCE_REF_RE, (full, id: string) =>
-    validIds.has(id) ? full : '',
-  )
+  // Accept [[S1]] and [S1]; normalize valid refs to [[S1]] for the frontend.
+  return answer.replace(SOURCE_REF_RE, (_full, doubleId?: string, singleId?: string) => {
+    const id = doubleId ?? singleId
+    if (!id || !validIds.has(id)) return ''
+    return `[[${id}]]`
+  })
 }
 
 function asRecord(value: unknown): Record<string, unknown> | null {
@@ -273,14 +328,19 @@ export function validateOllamaAnswer(
   if (answer == null) {
     throw new Error('Ollama answer must be a string')
   }
+  // An empty answer is a failed generation, not a valid response. Catching it
+  // here keeps a blank bubble out of the UI and out of the database.
+  if (!answer.trim()) {
+    throw new Error('Ollama answer must not be empty')
+  }
 
   const sourcesUsedRaw = readStringArrayField(
     record,
-    'sourcesUsed',
     'sources_used',
+    'sourcesUsed',
   )
   if (sourcesUsedRaw == null) {
-    throw new Error('Ollama sourcesUsed must be a string array')
+    throw new Error('Ollama sources_used must be a string array')
   }
 
   const availableIds = new Set(availableSources.map(source => source.id))
