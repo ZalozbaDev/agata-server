@@ -3,11 +3,9 @@ import { Prompt } from '../models/Prompt'
 import { Visitor } from '../models/Visitor'
 import { answerService } from './answerService'
 import { searchDuckDuckGo } from './duckDuckGoClient'
-import {
-  resolveOutputLanguage,
-  resolvePersona,
-  type Persona,
-} from '../config/personas'
+import { resolveOutputLanguage, type Persona } from '../config/personas'
+import { chatHistoryKey } from './personaPolicy'
+import { personaService } from './personaService'
 import { sotraClient } from './sotraClient'
 import {
   assignSourceIds,
@@ -47,8 +45,10 @@ export type ChatServiceInput = {
   isPhoneCall?: boolean
   /** Explicit UI language overrides detection when provided */
   outputLanguage?: AnswerLanguage
-  /** Unknown ids fall back to the default persona */
+  /** Unknown ids fall back to the default persona. Managed ids are loaded from MongoDB. */
   personaId?: string
+  /** Set only after the admin middleware has already authorized the caller. */
+  allowPrivatePersona?: boolean
 }
 
 type HistoryItem = {
@@ -105,14 +105,14 @@ function summarizeRagResponse(response: RagAskResponse) {
   }
 }
 
-async function buildHistory(ipAddress?: string): Promise<HistoryItem[]> {
-  if (!ipAddress) return []
+async function buildHistory(cacheKey?: string): Promise<HistoryItem[]> {
+  if (!cacheKey) return []
 
-  return conversationHistoryCache.get(ipAddress) ?? []
+  return conversationHistoryCache.get(cacheKey) ?? []
 }
 
 function rememberHistoryTurn(params: {
-  ipAddress: string
+  cacheKey: string
   input_text: string
   output_text: string
 }) {
@@ -121,7 +121,7 @@ function rememberHistoryTurn(params: {
 
   if (!inputText && !outputText) return
 
-  const currentHistory = conversationHistoryCache.get(params.ipAddress) ?? []
+  const currentHistory = conversationHistoryCache.get(params.cacheKey) ?? []
   const nextHistory = [...currentHistory]
 
   if (inputText) {
@@ -139,7 +139,7 @@ function rememberHistoryTurn(params: {
   }
 
   conversationHistoryCache.set(
-    params.ipAddress,
+    params.cacheKey,
     nextHistory.slice(-MAX_CACHED_HISTORY_ITEMS),
   )
 }
@@ -291,7 +291,9 @@ async function translateRagSnippetsToGerman(
 export const chatService = {
   async handleChat(input: ChatServiceInput): Promise<ChatServiceResult> {
     const message = (input.message ?? '').trim()
-    const persona = resolvePersona(input.personaId)
+    const persona = await personaService.resolveChatPersona(input.personaId, {
+      allowPrivate: input.allowPrivatePersona === true,
+    })
     if (!message) {
       return {
         language: persona.language === 'auto' ? 'hsb' : persona.language,
@@ -317,11 +319,14 @@ export const chatService = {
     const ipAddress = input.ipAddress
     const persist = input.persist ?? true
     const isPhoneCall = input.isPhoneCall ?? false
+    const historyKey = ipAddress
+      ? chatHistoryKey(persona.id, ipAddress)
+      : undefined
 
     const history = await timedStep(
       logger,
       'history loaded',
-      () => buildHistory(ipAddress),
+      () => buildHistory(historyKey),
       result => ({ historyItems: result.length }),
     )
     const ragHistory = normalizeHistoryToStringArray(history)
@@ -486,9 +491,9 @@ export const chatService = {
       sourceStrategy: answerResult.sourceStrategy,
     })
 
-    if (ipAddress) {
+    if (historyKey) {
       rememberHistoryTurn({
-        ipAddress,
+        cacheKey: historyKey,
         input_text: message,
         output_text: responseMessage,
       })

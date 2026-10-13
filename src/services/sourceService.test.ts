@@ -135,8 +135,12 @@ function testRagAndWebMetadataPreserved() {
     [
       {
         source_type: 'pdf',
-        source_url: '/documents/bautzen',
-        title: 'Geschichte der Stadt Bautzen',
+        source_url: 'https://docs.example.org/bautzen.pdf',
+        title: 'Geschichte der Stadt Bautzen - Page 12',
+        source_id: 'pdf:bautzen',
+        page: 12,
+        published_at: '2024-03-15',
+        section: 'Mittelalter',
       },
     ],
   )
@@ -150,9 +154,11 @@ function testRagAndWebMetadataPreserved() {
   const sources = assignSourceIds([...rag, ...web])
 
   assert.strictEqual(sources[0]?.type, 'rag')
-  assert.strictEqual(sources[0]?.documentUrl, '/documents/bautzen')
-  assert.strictEqual(sources[0]?.documentId, null)
-  assert.strictEqual(sources[0]?.page, null)
+  assert.strictEqual(sources[0]?.documentUrl, 'https://docs.example.org/bautzen.pdf')
+  assert.strictEqual(sources[0]?.documentId, 'pdf:bautzen')
+  assert.strictEqual(sources[0]?.page, 12)
+  assert.strictEqual(sources[0]?.publishedAt, '2024-03-15')
+  assert.strictEqual(sources[0]?.domain, 'docs.example.org')
 
   assert.strictEqual(sources[1]?.type, 'web')
   assert.strictEqual(sources[1]?.url, 'https://example.org/bautzen')
@@ -179,8 +185,35 @@ function testStripAndExtractHelpers() {
   const ids = extractSourceRefsFromAnswer('A [[S1]] B [[S2]][[S1]]')
   assert.deepStrictEqual(ids, ['S1', 'S2'])
 
+  const singleBracketIds = extractSourceRefsFromAnswer(
+    'Tota informacija [S1]. Hišće [S7].',
+  )
+  assert.deepStrictEqual(singleBracketIds, ['S1', 'S7'])
+
   const cleaned = stripInvalidSourceRefs('A [[S1]] B [[S99]]', new Set(['S1']))
   assert.strictEqual(cleaned, 'A [[S1]] B ')
+
+  const normalized = stripInvalidSourceRefs(
+    'Tota informacija [S1] a [S99].',
+    new Set(['S1']),
+  )
+  assert.strictEqual(normalized, 'Tota informacija [[S1]] a .')
+}
+
+function testSingleBracketRefsBecomeSources() {
+  const available = makeSources()
+  const validated = validateOllamaAnswer(
+    {
+      language: 'hsb',
+      title: 'Test',
+      answer: 'Informacija z nowinow [S1].',
+      sourcesUsed: [],
+    },
+    available,
+  )
+  assert.ok(validated.answer.includes('[[S1]]'))
+  assert.ok(!/(?<!\[)\[S1\](?!\])/.test(validated.answer))
+  assert.deepStrictEqual(validated.sourcesUsed, ['S1'])
 }
 
 function testParseJsonWithFence() {
@@ -195,6 +228,32 @@ function testParseJsonWithFence() {
   })
 }
 
+function testEmptyAnswerIsRejected() {
+  const available = makeSources()
+
+  for (const answer of ['', '   ', '\n\t ']) {
+    assert.throws(
+      () =>
+        validateOllamaAnswer(
+          { language: 'de', title: 'T', answer, sources_used: ['S1'] },
+          available,
+        ),
+      /answer must not be empty/,
+      `expected blank answer ${JSON.stringify(answer)} to be rejected`,
+    )
+  }
+}
+
+function testWhitespaceOnlyTitleStillAllowed() {
+  // Only the answer body is load-bearing; a weak title must not fail the turn.
+  const validated = validateOllamaAnswer(
+    { language: 'de', title: '  ', answer: 'Echte Antwort [[S1]]', sources_used: [] },
+    makeSources(),
+  )
+  assert.strictEqual(validated.title, 'Antwort')
+  assert.strictEqual(validated.answer, 'Echte Antwort [[S1]]')
+}
+
 const tests: Array<[string, () => void]> = [
   ['used sources only (S1+S2, not S3)', testUsedSourcesOnly],
   ['unknown source id S99 dropped', testUnknownSourceIdDropped],
@@ -203,7 +262,10 @@ const tests: Array<[string, () => void]> = [
   ['no sources yields empty sources', testNoSources],
   ['rag + web metadata preserved', testRagAndWebMetadataPreserved],
   ['strip/extract helpers', testStripAndExtractHelpers],
+  ['single-bracket [S1] normalized', testSingleBracketRefsBecomeSources],
   ['parse fenced JSON', testParseJsonWithFence],
+  ['empty answer is rejected', testEmptyAnswerIsRejected],
+  ['whitespace-only title falls back', testWhitespaceOnlyTitleStillAllowed],
 ]
 
 let failed = 0

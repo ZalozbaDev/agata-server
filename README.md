@@ -37,7 +37,26 @@ RAG server's parse endpoints (`collection=…`). Both must match.
 search is on) so the frontend can show labels without knowing prompt internals.
 
 `POST /api/chat` accepts `persona` in the body. Unknown or missing ids fall back
-to `agata`, so old clients keep working.
+to `agata`, so old clients keep working. A short slug such as `schule` is
+resolved to the managed persona stored under that name. A 24-character id that
+belongs to a managed persona is resolved from MongoDB as well. Private managed
+personas addressed by that internal id return 403 on this open endpoint.
+
+## Managed personas
+
+Administrators can create additional personas in MongoDB (`personas` and
+`personaDocuments`). Each one gets its own Qdrant collection
+`persona_<id>` on the RAG server, so uploads, search and deletion never share
+chunks with another persona or with the static collections above.
+
+Set `ADMIN_TOKEN` in the server environment. The React page
+`/admin/personas` sends it as `Authorization: Bearer …`. Each managed persona
+has a short slug for the webview (`/?persona=schule`) and a separate secret
+token for the document link (`/persona/<token>`). The slug is editable in the
+admin page and unique in MongoDB. `MONGODB_URI` stays server-side.
+
+The RAG server must expose `POST /documents`, `DELETE /documents` and
+`DELETE /collections/{name}` (see `rag-server-scaffold/README.api.md`).
 
 # chat logs
 

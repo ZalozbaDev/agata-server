@@ -11,7 +11,7 @@
     "deps:install-offline": "npm ci --cache ./.npm-cache --prefer-offline --offline",
     "lint": "eslint src/**/*.ts",
     "lint:fix": "eslint src/**/*.ts --fix",
-    "test": "ts-node --transpile-only src/services/sourceService.test.ts && ts-node --transpile-only src/config/personas.test.ts",
+    "test": "ts-node --transpile-only src/services/sourceService.test.ts && ts-node --transpile-only src/config/personas.test.ts && ts-node --transpile-only src/services/personaPolicy.test.ts",
     "typecheck": "tsc --noEmit"
   },
   "keywords": [
@@ -34,6 +34,7 @@
     "express-ws": "^5.0.2",
     "helmet": "^7.1.0",
     "mongoose": "^8.0.3",
+    "multer": "^2.4.0",
     "node-vad": "^1.1.4",
     "openai": "^5.9.0",
     "openmeteo": "^1.2.1",
@@ -45,6 +46,7 @@
     "@types/cors": "^2.8.17",
     "@types/express": "^4.17.21",
     "@types/express-ws": "^3.0.5",
+    "@types/multer": "^2.3.0",
     "@types/node": "^20.10.5",
     "@types/pdf-parse": "^1.1.5",
     "@types/ws": "^8.18.1",

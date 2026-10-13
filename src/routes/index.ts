@@ -12,6 +12,10 @@ import {
   DEFAULT_PERSONA_ID,
   personaSummaries,
 } from '../config/personas'
+import { HttpError } from '../services/personaPolicy'
+import adminPersonaRoutes from './adminPersonas'
+import personaTokenRoutes from './personaToken'
+import fileRoutes from './files'
 
 const router = Router()
 
@@ -55,6 +59,10 @@ router.get('/personas', (_req: Request, res: Response) => {
   })
 })
 
+router.use('/admin/personas', adminPersonaRoutes)
+router.use('/personas', personaTokenRoutes)
+router.use('/files', fileRoutes)
+
 router.post('/chat', async (req: Request, res: Response) => {
   const { message, ipAddress, persona } = req.body as {
     message?: string
@@ -86,6 +94,10 @@ router.post('/chat', async (req: Request, res: Response) => {
 
     res.json(result)
   } catch (error) {
+    if (error instanceof HttpError) {
+      res.status(error.statusCode).json({ error: error.message })
+      return
+    }
     const messageText = error instanceof Error ? error.message : String(error)
     console.error('Error in /chat:', messageText)
     res.status(500).json({
