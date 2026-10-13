@@ -32,6 +32,7 @@ import {
   isDuplicateSlugError,
   isDuplicateTokenError,
   isManagedPersonaId,
+  isPersonaCollectionName,
   isSystemPersonaSlug,
   normalizePersonaSlug,
   parseCreatePersona,
@@ -592,7 +593,7 @@ export const personaService = {
 
 function ragCollectionFor(persona: IPersona): string {
   const named = persona.ragCollection?.trim()
-  if (named) return named
+  if (named && isPersonaCollectionName(named)) return named
   return collectionNameForPersona(idOf(persona))
 }
 
@@ -615,7 +616,9 @@ function runtimeFromDocument(doc: IPersona): Persona {
     topK: doc.topK,
     webResultCount: doc.webResultCount ?? 0,
     allowGeneralKnowledge: doc.allowGeneralKnowledge === true,
-    ...(doc.ragCollection?.trim() ? { collection: doc.ragCollection.trim() } : {}),
+    ...(doc.ragCollection?.trim() && isPersonaCollectionName(doc.ragCollection.trim())
+      ? { collection: doc.ragCollection.trim() }
+      : {}),
     ...(typeof webFallback === 'number' ? { webFallbackResultCount: webFallback } : {}),
   })
 }

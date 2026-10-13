@@ -1,12 +1,13 @@
 import { DEFAULT_PERSONA_ID, SIP_PERSONA_ID } from '../config/personas'
 import { Persona } from '../models/Persona'
-import { generatePersonaToken } from '../services/personaPolicy'
+import {
+  generatePersonaToken,
+  isPersonaCollectionName,
+} from '../services/personaPolicy'
 import {
   MAIN_PERSONA_PROMPT,
   SIP_PERSONA_PROMPT,
 } from './defaultPersonaPrompts'
-
-const DEFAULT_COLLECTION = 'documents'
 
 type SeedPersona = {
   slug: string
@@ -36,7 +37,6 @@ export async function seedDefaultPersonas(): Promise<void> {
         webResultCount: 5,
         webFallbackResultCount: 5,
         allowGeneralKnowledge: true,
-        ragCollection: DEFAULT_COLLECTION,
         protected: true,
         tag: '',
         visibility: 'private',
@@ -47,15 +47,23 @@ export async function seedDefaultPersonas(): Promise<void> {
 
     const patch: {
       protected?: boolean
-      ragCollection?: string
       prompt?: string
     } = {}
     if (existing.protected !== true) patch.protected = true
-    if (!existing.ragCollection?.trim())
-      patch.ragCollection = DEFAULT_COLLECTION
     if (!existing.prompt?.trim()) patch.prompt = seed.prompt
-    if (Object.keys(patch).length > 0) {
-      await Persona.updateOne({ _id: existing._id }, { $set: patch })
+    const update: {
+      $set?: typeof patch
+      $unset?: { ragCollection: 1 }
+    } = {}
+    if (Object.keys(patch).length > 0) update.$set = patch
+    if (
+      existing.ragCollection &&
+      !isPersonaCollectionName(existing.ragCollection)
+    ) {
+      update.$unset = { ragCollection: 1 }
+    }
+    if (update.$set || update.$unset) {
+      await Persona.updateOne({ _id: existing._id }, update)
     }
   }
 }
