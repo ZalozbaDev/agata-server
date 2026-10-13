@@ -76,6 +76,7 @@ export async function indexPersonaDocument(params: {
   filename: string
   mimeType: string
   buffer: Buffer
+  language?: 'de' | 'hsb' | 'dsb'
 }): Promise<IndexedPersonaDocument> {
   if (!isPersonaCollectionName(params.collection)) {
     throw new HttpError(400, 'Ungültige Persona-Collection.')
@@ -90,6 +91,7 @@ export async function indexPersonaDocument(params: {
   form.append('file', new Blob([bytes], { type: params.mimeType }), params.filename)
   form.append('collection', params.collection)
   form.append('min_chars', '40')
+  if (params.language) form.append('language', params.language)
 
   const response = await ragFetch(
     `${ragBaseUrl()}/documents`,

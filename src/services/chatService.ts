@@ -177,6 +177,7 @@ async function askRagServer(
   question: string,
   persona: Persona,
   logger: ChatTimingLogger,
+  language: 'de' | 'hsb' | 'dsb',
 ): Promise<RagAskResponse> {
   const RAG_SERVER_URL = process.env['RAG_SERVER_URL']
 
@@ -186,8 +187,7 @@ async function askRagServer(
 
   const startedAt = Date.now()
   const timestamp = new Date(startedAt).toISOString()
-  // Retrieval always runs on the German translation, so BM25 must stem German.
-  const retrievalLanguage = 'de'
+  const retrievalLanguage = language
 
   chatTimingLog(`${timestamp} | rag request`, {
     questionChars: question.length,
@@ -343,37 +343,68 @@ export const chatService = {
       queryLanguage,
       outputLanguage,
       personaLanguage: persona.language,
+      documentLanguage: persona.documentLanguage ?? null,
     })
 
-    const questionDe = await timedStep(
-      logger,
-      queryLanguage === 'de'
-        ? 'question already DE'
-        : 'question translated HSB→DE (before retrieval)',
-      () => questionToGerman(message, queryLanguage),
-      result => ({
-        questionDeChars: result.length,
-        questionDePreview: summarizeText(result),
-      }),
-    )
+    // An Upper or Lower Sorbian persona asked in Sorbian keeps every text
+    // as stored. Translating the question or the chunks would replace the
+    // document wording before the model sees it.
+    const documentLanguage = persona.documentLanguage
+    const keepOriginalText =
+      (documentLanguage === 'hsb' || documentLanguage === 'dsb') &&
+      queryLanguage === 'hsb'
 
-    // Always retrieve with the German text, for every persona. The embedding
-    // model barely represents Upper Sorbian: measured against the same corpus,
-    // a Sorbian query reaches a cosine of ~0.22 where its German translation
-    // reaches ~0.47, which is the difference between passing and failing
-    // RETRIEVAL_SCORE_THRESHOLD. German even beats Sorbian on Sorbian
-    // documents, so there is no collection for which the original wins.
-    const ragResponse = await askRagServer(questionDe, persona, logger)
+    const questionDe = keepOriginalText
+      ? message
+      : await timedStep(
+          logger,
+          queryLanguage === 'de'
+            ? 'question already DE'
+            : 'question translated HSB→DE (retrieval fallback)',
+          () => questionToGerman(message, queryLanguage),
+          result => ({
+            questionDeChars: result.length,
+            questionDePreview: summarizeText(result),
+          }),
+        )
+    if (keepOriginalText) {
+      logger.step('question kept in original language', { queryLanguage })
+    }
 
-    const contextsDe = await translateRagSnippetsToGerman(
-      ragResponse.contexts,
-      logger,
-    )
+    // Search in the language the persona's documents were indexed with.
+    // German documents are queried in German. Sorbian documents keep the
+    // original wording, because a translation drops the lexical match.
+    const germanQuestion = questionDe.trim()
+    let ragForAnswer
+    if (documentLanguage === 'de') {
+      ragForAnswer = await askRagServer(germanQuestion || message, persona, logger, 'de')
+    } else if (documentLanguage === 'hsb' || documentLanguage === 'dsb') {
+      ragForAnswer = await askRagServer(message, persona, logger, documentLanguage)
+    } else {
+      const ragResponse = await askRagServer(message, persona, logger, queryLanguage)
+      const originalHitCount = ragResponse.contexts?.length ?? 0
+      const useGermanFallback =
+        originalHitCount === 0 &&
+        germanQuestion.length > 0 &&
+        germanQuestion !== message.trim()
+      ragForAnswer = useGermanFallback
+        ? await askRagServer(germanQuestion, persona, logger, 'de')
+        : ragResponse
+    }
+
+    const contextsForAnswer = keepOriginalText
+      ? (ragForAnswer.contexts ?? [])
+      : await translateRagSnippetsToGerman(ragForAnswer.contexts ?? [], logger)
+    if (keepOriginalText) {
+      logger.step('contexts kept in original language', {
+        contextCount: contextsForAnswer.length,
+      })
+    }
 
     const ragSourcesNormalized = normalizeRagSources(
-      contextsDe,
-      ragResponse.sources,
-      ragResponse.scores,
+      contextsForAnswer,
+      ragForAnswer.sources ?? [],
+      ragForAnswer.scores,
     )
     const usableRagSources = ragSourcesNormalized.filter(
       source => String(source.snippet ?? '').trim().length > 0,

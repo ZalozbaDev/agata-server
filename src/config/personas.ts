@@ -3,6 +3,9 @@ import type { AnswerLanguage } from '../types/source'
 /** `auto` answers in the language of the question, otherwise the language is forced. */
 export type PersonaLanguageMode = AnswerLanguage | 'auto'
 
+/** Language of the documents stored for a persona. Chosen once, at creation. */
+export type PersonaDocumentLanguage = 'de' | 'hsb' | 'dsb'
+
 export type Persona = {
   id: string
   label: string
@@ -15,6 +18,8 @@ export type Persona = {
   /** Web results when RAG returned nothing usable; 0 disables the fallback */
   webFallbackResultCount: number
   language: PersonaLanguageMode
+  /** Language the persona's documents are written in. Drives indexing and search. */
+  documentLanguage?: PersonaDocumentLanguage
   /** Persona description injected into the LLM system prompt */
   description: string
   /** When false the assistant never answers from general model knowledge */

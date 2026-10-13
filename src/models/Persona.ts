@@ -7,6 +7,8 @@ export interface IPersona extends Document {
   /** Short webview key, for example `schule` in `?persona=schule`. */
   slug?: string
   prompt: string
+  /** Document language. Set at creation and never changed. */
+  language?: 'de' | 'hsb' | 'dsb'
   token: string
   topK: number
   /** DuckDuckGo results per answer. 0 disables web search. */
@@ -46,6 +48,10 @@ const personaSchema = new Schema<IPersona>(
       type: String,
       default: '',
       maxlength: 20000,
+    },
+    language: {
+      type: String,
+      enum: ['de', 'hsb', 'dsb'],
     },
     token: {
       type: String,

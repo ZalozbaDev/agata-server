@@ -3,6 +3,7 @@ import {
   DEFAULT_PERSONA_ID,
   SIP_PERSONA_ID,
   type Persona,
+  type PersonaDocumentLanguage,
 } from '../config/personas'
 
 export type PersonaVisibility = 'public' | 'private'
@@ -50,6 +51,7 @@ export type PersonaWriteInput = {
   name?: unknown
   slug?: unknown
   prompt?: unknown
+  language?: unknown
   topK?: unknown
   webResultCount?: unknown
   tag?: unknown
@@ -61,6 +63,7 @@ export type NormalizedPersona = {
   name: string
   slug: string
   prompt: string
+  language: PersonaDocumentLanguage
   topK: number
   webResultCount: number
   tag: string
@@ -263,6 +266,7 @@ export function toRuntimePersona(persona: {
   topK: number
   webResultCount?: number
   webFallbackResultCount?: number
+  documentLanguage?: PersonaDocumentLanguage
   allowGeneralKnowledge?: boolean
 }): Persona {
   const prompt = persona.prompt.trim()
@@ -282,6 +286,9 @@ export function toRuntimePersona(persona: {
     webResultCount,
     webFallbackResultCount: webFallback,
     language: 'auto',
+    ...(persona.documentLanguage
+      ? { documentLanguage: persona.documentLanguage }
+      : {}),
     description: prompt || FALLBACK_PROMPT,
     allowGeneralKnowledge: persona.allowGeneralKnowledge === true,
   }
@@ -290,6 +297,7 @@ export function toRuntimePersona(persona: {
 export type PublicPersonaView = {
   name: string
   tag: string
+  language: PersonaDocumentLanguage | null
   visibility: 'public'
   canUpload: boolean
   canDelete: boolean
@@ -299,17 +307,36 @@ export type PublicPersonaView = {
 export function toPublicPersonaView(persona: {
   name: string
   tag: string
+  language?: PersonaDocumentLanguage | null
   allowExternalDelete: boolean
   documentCount: number
 }): PublicPersonaView {
   return {
     name: persona.name,
     tag: persona.tag,
+    language: persona.language ?? null,
     visibility: 'public',
     canUpload: true,
     canDelete: persona.allowExternalDelete,
     documentCount: persona.documentCount,
   }
+}
+
+export function readDocumentLanguage(
+  value: unknown,
+  required: boolean,
+): PersonaDocumentLanguage | undefined {
+  if (value === undefined || value === null || value === '') {
+    if (required) throw new HttpError(400, 'Die Sprache ist ein Pflichtfeld.')
+    return undefined
+  }
+  if (value !== 'de' && value !== 'hsb' && value !== 'dsb') {
+    throw new HttpError(
+      400,
+      'Sprache muss Deutsch, Obersorbisch oder Niedersorbisch sein.',
+    )
+  }
+  return value
 }
 
 function readString(value: unknown, label: string, max: number, required: boolean): string {
@@ -423,10 +450,13 @@ export function parseCreatePersona(input: PersonaWriteInput): NormalizedPersona 
   }
   const slug = readSlug(input.slug, true)
   if (!slug) throw new HttpError(400, 'Der Kurzname ist ein Pflichtfeld.')
+  const language = readDocumentLanguage(input.language, true)
+  if (!language) throw new HttpError(400, 'Die Sprache ist ein Pflichtfeld.')
   return {
     name: readString(input.name, 'Name', MAX_NAME_LENGTH, true),
     slug,
     prompt: readString(input.prompt, 'Prompt', MAX_PROMPT_LENGTH, false),
+    language,
     topK,
     webResultCount: readWebResultCount(input.webResultCount, false) ?? MIN_WEB_RESULTS,
     tag: readString(input.tag, 'Tag', MAX_TAG_LENGTH, false),

@@ -34,6 +34,7 @@ export async function seedDefaultPersonas(): Promise<void> {
         prompt: seed.prompt,
         token: generatePersonaToken(),
         topK: 5,
+        language: 'hsb',
         webResultCount: 5,
         webFallbackResultCount: 5,
         allowGeneralKnowledge: true,
@@ -48,9 +49,11 @@ export async function seedDefaultPersonas(): Promise<void> {
     const patch: {
       protected?: boolean
       prompt?: string
+      language?: 'hsb'
     } = {}
     if (existing.protected !== true) patch.protected = true
     if (!existing.prompt?.trim()) patch.prompt = seed.prompt
+    if (existing.language !== 'hsb') patch.language = 'hsb'
     const update: {
       $set?: typeof patch
       $unset?: { ragCollection: 1 }

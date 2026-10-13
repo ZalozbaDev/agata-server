@@ -3,6 +3,7 @@ import {
   DEFAULT_PERSONA_ID,
   SIP_PERSONA_ID,
   type Persona,
+  type PersonaDocumentLanguage,
 } from '../config/personas'
 import { Persona as PersonaModel, type IPersona } from '../models/Persona'
 import {
@@ -38,6 +39,7 @@ import {
   parseCreatePersona,
   PERSONA_SLUG_PATTERN,
   parseUpdatePersona,
+  readDocumentLanguage,
   sanitizeFilename,
   scopedDocumentQuery,
   toPublicPersonaView,
@@ -50,6 +52,7 @@ export type AdminPersonaDto = {
   name: string
   slug: string
   prompt: string
+  language: PersonaDocumentLanguage | null
   token: string
   topK: number
   webResultCount: number
@@ -92,6 +95,7 @@ function toAdminDto(persona: IPersona, documentCount: number): AdminPersonaDto {
     name: persona.name,
     slug: persona.slug ?? '',
     prompt: persona.prompt ?? '',
+    language: persona.language ?? null,
     token: persona.token,
     topK: persona.topK,
     webResultCount: persona.webResultCount ?? 0,
@@ -211,6 +215,7 @@ export const personaService = {
       name: parsed.name,
       slug: parsed.slug,
       prompt: parsed.prompt,
+      language: parsed.language,
       token: generatePersonaToken(),
       topK: parsed.topK,
       webResultCount: parsed.webResultCount,
@@ -225,6 +230,7 @@ export const personaService = {
   async update(id: string, input: PersonaWriteInput): Promise<AdminPersonaDto> {
     const persona = await requirePersona(id)
     const parsed = parseUpdatePersona(input)
+    const incomingLanguage = readDocumentLanguage(input.language, false)
     if (parsed.slug && parsed.slug !== (persona.slug ?? '')) {
       if (persona.protected || isSystemPersonaSlug(persona.slug)) {
         throw new HttpError(
@@ -237,6 +243,9 @@ export const personaService = {
       }
     }
     applyNormalized(persona, parsed)
+    if (!persona.language && incomingLanguage) {
+      persona.language = incomingLanguage
+    }
     const saved = await savePersona(persona)
     return toAdminDto(saved, await countFor(idOf(saved)))
   },
@@ -369,6 +378,7 @@ export const personaService = {
       filename,
       mimeType: classified.mimeType,
       buffer: file.buffer,
+      ...(persona.language ? { language: persona.language } : {}),
     })
 
     let document: IPersonaDocument
@@ -468,6 +478,7 @@ export const personaService = {
     return toPublicPersonaView({
       name: persona.name,
       tag: persona.tag ?? '',
+      language: persona.language ?? null,
       allowExternalDelete: persona.allowExternalDelete,
       documentCount: await countFor(idOf(persona)),
     })
@@ -616,6 +627,7 @@ function runtimeFromDocument(doc: IPersona): Persona {
     topK: doc.topK,
     webResultCount: doc.webResultCount ?? 0,
     allowGeneralKnowledge: doc.allowGeneralKnowledge === true,
+    ...(doc.language ? { documentLanguage: doc.language } : {}),
     ...(doc.ragCollection?.trim() && isPersonaCollectionName(doc.ragCollection.trim())
       ? { collection: doc.ragCollection.trim() }
       : {}),

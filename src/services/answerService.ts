@@ -227,6 +227,18 @@ async function completeStructuredAnswer(
   }
 }
 
+function germanQuestionTranslation(
+  outputLanguage: AnswerLanguage,
+  originalQuestion: string,
+  questionDe: string,
+): string | null {
+  if (outputLanguage !== 'hsb') return null
+  const original = originalQuestion.trim()
+  const german = questionDe.trim()
+  if (!german || german === original) return null
+  return german
+}
+
 function resolveStrategy(
   sources: Source[],
   preferredStrategy?: 'rag' | 'web' | 'general',
@@ -325,8 +337,11 @@ export const answerService = {
         }
       }
 
-      const germanTranslation =
-        params.outputLanguage === 'hsb' ? params.questionDe : null
+      const germanTranslation = germanQuestionTranslation(
+        params.outputLanguage,
+        params.originalQuestion,
+        params.questionDe,
+      )
 
       const messages: ChatMessage[] = [
         {
@@ -370,8 +385,11 @@ export const answerService = {
       }
     }
 
-    const germanTranslation =
-      params.outputLanguage === 'hsb' ? params.questionDe : null
+    const germanTranslation = germanQuestionTranslation(
+      params.outputLanguage,
+      params.originalQuestion,
+      params.questionDe,
+    )
     const mode: 'rag' | 'web' = sourceStrategy === 'web' ? 'web' : 'rag'
     const webSources = params.sources.filter(source => source.type === 'web')
 
