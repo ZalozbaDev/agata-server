@@ -1,6 +1,5 @@
 import { Types } from 'mongoose'
-import type { Persona } from '../config/personas'
-import { isKnownPersona, resolvePersona } from '../config/personas'
+import { isKnownPersona, resolvePersona, type Persona } from '../config/personas'
 import { Persona as PersonaModel, type IPersona } from '../models/Persona'
 import {
   PersonaDocument,
@@ -11,16 +10,18 @@ import {
   deletePersonaSource,
   indexPersonaDocument,
 } from './ragDocumentClient'
-import { deleteStoredFile, saveStoredFile } from './personaFileStore'
+import { deleteStoredFile, deletePersonaImageFile, savePersonaImage, saveStoredFile } from './personaFileStore'
 import {
   HttpError,
   MAX_DOCUMENTS_PER_PERSONA,
+  MAX_IMAGE_BYTES,
   MAX_UPLOAD_BYTES,
   type NormalizedPersona,
   type PersonaWriteInput,
   type PublicPersonaView,
   assertManagedPersonaChatAccess,
   assertTokenDocumentAccess,
+  classifyPersonaImage,
   classifyUpload,
   collectionNameForPersona,
   generatePersonaToken,
@@ -46,6 +47,7 @@ export type AdminPersonaDto = {
   token: string
   topK: number
   webResultCount: number
+  hasImage: boolean
   tag: string
   visibility: 'public' | 'private'
   allowExternalDelete: boolean
@@ -86,6 +88,7 @@ function toAdminDto(persona: IPersona, documentCount: number): AdminPersonaDto {
     token: persona.token,
     topK: persona.topK,
     webResultCount: persona.webResultCount ?? 0,
+    hasImage: Boolean(persona.imageFileId),
     tag: persona.tag ?? '',
     visibility: persona.visibility,
     allowExternalDelete: persona.allowExternalDelete,
@@ -221,6 +224,73 @@ export const personaService = {
     return toAdminDto(saved, await countFor(idOf(saved)))
   },
 
+  async setImage(
+    personaId: string,
+    file: UploadedFile | undefined,
+  ): Promise<AdminPersonaDto> {
+    const persona = await requirePersona(personaId)
+    if (!file || !file.buffer || file.size <= 0) {
+      throw new HttpError(400, 'Es wurde kein Bild übergeben.')
+    }
+    if (file.size > MAX_IMAGE_BYTES || file.buffer.length > MAX_IMAGE_BYTES) {
+      throw new HttpError(400, 'Das Bild ist größer als 5 MB.')
+    }
+    const filename = sanitizeFilename(file.originalname || 'bild')
+    const mimeType = classifyPersonaImage(filename, file.mimetype || '')
+    const previous = persona.imageFileId
+    const imageId = await savePersonaImage({
+      filename,
+      mimeType,
+      buffer: file.buffer,
+      personaId: idOf(persona),
+    })
+    try {
+      persona.imageFileId = imageId
+      persona.imageMimeType = mimeType
+      const saved = await savePersona(persona)
+      if (previous && String(previous) !== String(imageId)) {
+        await deletePersonaImageFile(previous).catch(() => undefined)
+      }
+      return toAdminDto(saved, await countFor(idOf(saved)))
+    } catch (error) {
+      await deletePersonaImageFile(imageId).catch(() => undefined)
+      throw error
+    }
+  },
+
+  async clearImage(personaId: string): Promise<AdminPersonaDto> {
+    const persona = await requirePersona(personaId)
+    await deletePersonaImageFile(persona.imageFileId).catch(error => {
+      console.error(
+        'Persona image cleanup failed:',
+        error instanceof Error ? error.name : 'unknown',
+      )
+    })
+    await PersonaModel.updateOne(
+      { _id: persona._id },
+      { $unset: { imageFileId: 1, imageMimeType: 1 } },
+    )
+    const fresh = await requirePersona(personaId)
+    return toAdminDto(fresh, await countFor(idOf(fresh)))
+  },
+
+  async openImage(
+    key: string,
+  ): Promise<{ fileId: Types.ObjectId; mimeType: string } | null> {
+    const normalized = key.trim().toLowerCase()
+    if (!normalized) return null
+    const persona = isManagedPersonaId(normalized)
+      ? await PersonaModel.findById(normalized).catch(() => null)
+      : PERSONA_SLUG_PATTERN.test(normalized)
+        ? await PersonaModel.findOne({ slug: normalized })
+        : null
+    if (!persona?.imageFileId) return null
+    return {
+      fileId: persona.imageFileId,
+      mimeType: persona.imageMimeType || 'image/png',
+    }
+  },
+
   async remove(id: string): Promise<void> {
     const persona = await requirePersona(id)
     const collection = collectionNameForPersona(idOf(persona))
@@ -235,6 +305,12 @@ export const personaService = {
       })
     }
     await PersonaDocument.deleteMany(scopedDocumentQuery(idOf(persona)))
+    await deletePersonaImageFile(persona.imageFileId).catch(error => {
+      console.error(
+        'Persona image cleanup failed:',
+        error instanceof Error ? error.name : 'unknown',
+      )
+    })
     await persona.deleteOne()
   },
 
@@ -459,6 +535,28 @@ export const personaService = {
       options?.allowPrivate === true,
     )
     return runtimeFromDocument(doc)
+  },
+
+  async publicName(key: string): Promise<string | null> {
+    const normalized = key.trim().toLowerCase()
+    if (!normalized || normalized.length > 128) return null
+    if (isKnownPersona(normalized)) return resolvePersona(normalized).label
+
+    try {
+      const persona = PERSONA_SLUG_PATTERN.test(normalized)
+        ? await PersonaModel.findOne({ slug: normalized }).select('name')
+        : isManagedPersonaId(normalized)
+          ? await PersonaModel.findById(normalized).select('name')
+          : null
+      const name = persona?.name?.trim() ?? ''
+      return name || null
+    } catch (error) {
+      console.error(
+        'Persona name lookup failed:',
+        error instanceof Error ? error.name : 'unknown',
+      )
+      return null
+    }
   },
 }
 

@@ -2,7 +2,7 @@ import { Router, type Request, type Response } from 'express'
 import { requireAdmin } from '../middleware/requireAdmin'
 import { chatService } from '../services/chatService'
 import { personaService } from '../services/personaService'
-import { sendPersonaError, singleFile, uploadedFile } from './personaHttp'
+import { sendPersonaError, singleFile, singleImage, uploadedFile } from './personaHttp'
 
 const router = Router()
 
@@ -45,6 +45,27 @@ router.put('/:id', async (req: Request, res: Response) => {
       String(req.params['id'] ?? ''),
       req.body ?? {},
     )
+    res.json({ persona })
+  } catch (error) {
+    sendPersonaError(res, error)
+  }
+})
+
+router.post('/:id/image', singleImage, async (req: Request, res: Response) => {
+  try {
+    const persona = await personaService.setImage(
+      String(req.params['id'] ?? ''),
+      uploadedFile(req),
+    )
+    res.json({ persona })
+  } catch (error) {
+    sendPersonaError(res, error)
+  }
+})
+
+router.delete('/:id/image', async (req: Request, res: Response) => {
+  try {
+    const persona = await personaService.clearImage(String(req.params['id'] ?? ''))
     res.json({ persona })
   } catch (error) {
     sendPersonaError(res, error)

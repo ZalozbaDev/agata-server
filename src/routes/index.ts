@@ -16,6 +16,7 @@ import { HttpError } from '../services/personaPolicy'
 import adminPersonaRoutes from './adminPersonas'
 import personaTokenRoutes from './personaToken'
 import fileRoutes from './files'
+import personaImageRoutes from './personaImage'
 
 const router = Router()
 
@@ -60,6 +61,7 @@ router.get('/personas', (_req: Request, res: Response) => {
 })
 
 router.use('/admin/personas', adminPersonaRoutes)
+router.use('/personas', personaImageRoutes)
 router.use('/personas', personaTokenRoutes)
 router.use('/files', fileRoutes)
 

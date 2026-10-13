@@ -17,6 +17,7 @@ export const MAX_TOP_K = 50
 export const MIN_WEB_RESULTS = 0
 export const MAX_WEB_RESULTS = 20
 export const MAX_UPLOAD_BYTES = 20 * 1024 * 1024
+export const MAX_IMAGE_BYTES = 5 * 1024 * 1024
 export const MAX_DOCUMENTS_PER_PERSONA = 100
 
 const FALLBACK_PROMPT =
@@ -219,6 +220,32 @@ export function classifyUpload(
     400,
     'Nur PDF- und HTML-Dateien können hochgeladen werden.',
   )
+}
+
+const PERSONA_IMAGE_TYPES = new Set([
+  'image/jpeg',
+  'image/png',
+  'image/webp',
+  'image/gif',
+])
+
+export function classifyPersonaImage(filename: string, mimeType: string): string {
+  const type = mimeType.split(';', 1)[0]?.trim().toLowerCase() ?? ''
+  const name = filename.toLowerCase()
+  const fromName = name.endsWith('.png')
+    ? 'image/png'
+    : name.endsWith('.webp')
+      ? 'image/webp'
+      : name.endsWith('.gif')
+        ? 'image/gif'
+        : name.endsWith('.jpg') || name.endsWith('.jpeg')
+          ? 'image/jpeg'
+          : ''
+  const mime = PERSONA_IMAGE_TYPES.has(type) ? type : fromName
+  if (!mime) {
+    throw new HttpError(400, 'Das Bild muss PNG, JPEG, WebP oder GIF sein.')
+  }
+  return mime
 }
 
 export function toRuntimePersona(persona: {

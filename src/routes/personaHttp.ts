@@ -1,11 +1,16 @@
 import type { NextFunction, Request, Response } from 'express'
 import multer from 'multer'
-import { HttpError, MAX_UPLOAD_BYTES } from '../services/personaPolicy'
+import { HttpError, MAX_IMAGE_BYTES, MAX_UPLOAD_BYTES } from '../services/personaPolicy'
 import type { UploadedFile } from '../services/personaService'
 
 const upload = multer({
   storage: multer.memoryStorage(),
   limits: { fileSize: MAX_UPLOAD_BYTES, files: 1 },
+})
+
+const imageUpload = multer({
+  storage: multer.memoryStorage(),
+  limits: { fileSize: MAX_IMAGE_BYTES, files: 1 },
 })
 
 type StoredFile = {
@@ -38,6 +43,20 @@ export function singleFile(req: Request, res: Response, next: NextFunction): voi
       return
     }
     res.status(400).json({ error: 'Die Datei konnte nicht gelesen werden.' })
+  })
+}
+
+export function singleImage(req: Request, res: Response, next: NextFunction): void {
+  imageUpload.single('file')(req, res, (error: unknown) => {
+    if (!error) {
+      next()
+      return
+    }
+    if (error instanceof multer.MulterError && error.code === 'LIMIT_FILE_SIZE') {
+      res.status(400).json({ error: 'Das Bild ist größer als 5 MB.' })
+      return
+    }
+    res.status(400).json({ error: 'Das Bild konnte nicht gelesen werden.' })
   })
 }
 

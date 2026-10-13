@@ -11,6 +11,8 @@ export interface IPersona extends Document {
   topK: number
   /** DuckDuckGo results per answer. 0 disables web search. */
   webResultCount: number
+  imageFileId?: mongoose.Types.ObjectId
+  imageMimeType?: string
   tag: string
   visibility: PersonaVisibility
   allowExternalDelete: boolean
@@ -56,6 +58,14 @@ const personaSchema = new Schema<IPersona>(
       default: 0,
       min: 0,
       max: 20,
+    },
+    imageFileId: {
+      type: Schema.Types.ObjectId,
+    },
+    imageMimeType: {
+      type: String,
+      trim: true,
+      maxlength: 80,
     },
     tag: {
       type: String,
