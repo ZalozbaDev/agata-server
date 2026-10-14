@@ -24,12 +24,6 @@ Per persona you configure:
 | `allowGeneralKnowledge`  | When `false` the assistant says "no sources" instead of answering from model knowledge |
 | `description`            | Persona text injected into the LLM system prompt                                       |
 
-Shipped personas:
-
-- `agata` — default, bilingual, RAG plus web search
-- `zalozba-spechowane-projekty` — RAG only, German
-- `zalozba-strukturna-zmena` — RAG only, German
-
 Adding a persona means adding an entry here and filling its collection via the
 RAG server's parse endpoints (`collection=…`). Both must match.
 
@@ -62,10 +56,10 @@ The RAG server must expose `POST /documents`, `DELETE /documents` and
 
 Set `CHAT_LOG_MODE` in `.env`:
 
-| Value  | Behaviour                                                                 |
-| ------ | ------------------------------------------------------------------------- |
-| `none` | No chat pipeline logs (default)                                           |
+| Value  | Behaviour                                                                   |
+| ------ | --------------------------------------------------------------------------- |
+| `none` | No chat pipeline logs (default)                                             |
 | `rag`  | Compact block: persona, question, RAG hits with match %, AI sources, answer |
-| `all`  | Full timing/provider logs plus the compact RAG summary                    |
+| `all`  | Full timing/provider logs plus the compact RAG summary                      |
 
 `CHAT_TIMING_ENABLED=true` still works and is treated as `all`.
