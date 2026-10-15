@@ -252,11 +252,24 @@ async function questionToGerman(
 }
 
 /**
- * German-document personas may receive an Upper Sorbian chunk.
- * Those are translated for the prompt. Personas whose documents are Upper or
- * Lower Sorbian never call this: their text stays in the language chosen
- * when the persona was created.
+ * German wording for the model. Upper Sorbian text is translated with Sotra.
+ * Text that is already German stays as it is. Citations of Upper Sorbian
+ * documents keep the original snippet and do not use this result.
  */
+function withGermanRagSnippets(sources: Source[], germanSnippets: string[]): Source[] {
+  const ragIds = sources
+    .filter(source => source.type === 'rag')
+    .map(source => source.id)
+  const germanById = new Map(
+    ragIds.map((id, index) => [id, germanSnippets[index]?.trim() ?? '']),
+  )
+  return sources.map(source => {
+    const german = germanById.get(source.id)
+    if (!german || german === String(source.snippet ?? '').trim()) return source
+    return { ...source, snippet: german }
+  })
+}
+
 async function translateRagSnippetsToGerman(
   contexts: string[],
   logger: ChatTimingLogger,
@@ -351,13 +364,15 @@ export const chatService = {
       documentLanguage: persona.documentLanguage ?? null,
     })
 
-    // Document language is fixed when the persona is created. Sorbian
-    // documents stay in that language for retrieval, the model, and the logs.
-    // Translating them to German replaces the wording the answer is based on.
+    // Upper Sorbian documents are retrieved and cited in the original wording.
+    // The model reads a German Sotra translation and writes the answer in German.
+    // Only the finished title and answer are translated back to Upper Sorbian.
+    // Lower Sorbian has no Sotra pair, so that text stays unchanged.
     const documentLanguage = persona.documentLanguage
     const preserveDocumentWording =
       documentLanguage === 'hsb' || documentLanguage === 'dsb'
-    const keepOriginalText = preserveDocumentWording && queryLanguage === 'hsb'
+    const reasonInGerman = documentLanguage === 'hsb'
+    const keepOriginalText = documentLanguage === 'dsb' && queryLanguage === 'hsb'
 
     const questionDe = keepOriginalText
       ? message
@@ -365,7 +380,9 @@ export const chatService = {
           logger,
           queryLanguage === 'de'
             ? 'question already DE'
-            : 'question translated HSB→DE (retrieval fallback)',
+            : reasonInGerman
+              ? 'question translated HSB→DE (model)'
+              : 'question translated HSB→DE (retrieval fallback)',
           () => questionToGerman(message, queryLanguage),
           result => ({
             questionDeChars: result.length,
@@ -400,7 +417,11 @@ export const chatService = {
     const contextsForAnswer = preserveDocumentWording
       ? (ragForAnswer.contexts ?? [])
       : await translateRagSnippetsToGerman(ragForAnswer.contexts ?? [], logger)
-    if (preserveDocumentWording) {
+    if (reasonInGerman) {
+      logger.step('contexts kept in Upper Sorbian for citations', {
+        contextCount: contextsForAnswer.length,
+      })
+    } else if (preserveDocumentWording) {
       logger.step('contexts kept in document language', {
         documentLanguage,
         contextCount: contextsForAnswer.length,
@@ -483,6 +504,17 @@ export const chatService = {
       preferredStrategy = 'rag'
     }
 
+    const germanRagSnippets =
+      reasonInGerman && usableRagSources.length > 0
+        ? await translateRagSnippetsToGerman(
+            usableRagSources.map(source => String(source.snippet ?? '')),
+            logger,
+          )
+        : null
+    const promptSources = germanRagSnippets
+      ? withGermanRagSnippets(sources, germanRagSnippets)
+      : undefined
+
     const answerResult = await timedStep(
       logger,
       'llm answer generated',
@@ -495,6 +527,8 @@ export const chatService = {
           history: ragHistory,
           isPhoneCall,
           persona,
+          ...(reasonInGerman ? { reasonInGerman: true } : {}),
+          ...(promptSources ? { promptSources } : {}),
           ...(preferredStrategy ? { preferredStrategy } : {}),
         }),
       result => ({
@@ -519,7 +553,7 @@ export const chatService = {
         page: source.page ?? null,
         snippet: source.snippet ?? null,
       })),
-      sentToAi: sources.map(source => ({
+      sentToAi: (promptSources ?? sources).map(source => ({
         id: source.id,
         type: source.type,
         title: source.title,

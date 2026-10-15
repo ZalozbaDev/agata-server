@@ -6,11 +6,14 @@ import assert from 'assert'
 import {
   assignSourceIds,
   extractSourceRefsFromAnswer,
+  maskSourceRefs,
   normalizeRagSources,
   normalizeWebSources,
   parseOllamaAnswerJson,
   pickSourcesByIds,
+  sourceRefMasksIntact,
   stripInvalidSourceRefs,
+  unmaskSourceRefs,
   validateOllamaAnswer,
 } from './sourceService'
 import type { Source } from '../types/source'
@@ -244,6 +247,18 @@ function testEmptyAnswerIsRejected() {
   }
 }
 
+function testSourceRefMasksRoundTrip() {
+  const masked = maskSourceRefs('Ein LLM [[S1]] arbeitet so [[S2]][[S1]].')
+  assert.deepStrictEqual(masked.refs, ['S1', 'S2', 'S1'])
+  assert.strictEqual(masked.text.includes('[[S'), false)
+  assert.strictEqual(sourceRefMasksIntact(masked.text, masked.refs.length), true)
+  assert.strictEqual(
+    unmaskSourceRefs(masked.text, masked.refs),
+    'Ein LLM [[S1]] arbeitet so [[S2]][[S1]].',
+  )
+  assert.strictEqual(sourceRefMasksIntact('übersetzt ohne Marker', 2), false)
+}
+
 function testWhitespaceOnlyTitleStillAllowed() {
   // Only the answer body is load-bearing; a weak title must not fail the turn.
   const validated = validateOllamaAnswer(
@@ -266,6 +281,7 @@ const tests: Array<[string, () => void]> = [
   ['parse fenced JSON', testParseJsonWithFence],
   ['empty answer is rejected', testEmptyAnswerIsRejected],
   ['whitespace-only title falls back', testWhitespaceOnlyTitleStillAllowed],
+  ['source ref masks survive a round trip', testSourceRefMasksRoundTrip],
 ]
 
 let failed = 0

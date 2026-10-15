@@ -5,14 +5,18 @@ import {
 import {
   OLLAMA_ANSWER_JSON_SCHEMA,
   buildResearchUserPrompt,
+  maskSourceRefs,
   noSourcesMessage,
   parseOllamaAnswerJson,
   pickSourcesByIds,
+  sourceRefMasksIntact,
   toLlmSourceContent,
+  unmaskSourceRefs,
   validateOllamaAnswer,
 } from './sourceService'
 import type { AnswerLanguage, Source } from '../types/source'
 import type { Persona } from '../config/personas'
+import { sotraClient } from './sotraClient'
 import { chatTimingLog } from '../utils/chatTimingLogger'
 
 export type AnswerResult = {
@@ -32,10 +36,22 @@ function todayIso(): string {
   return new Date().toISOString()
 }
 
+function germanReasoningNote(translatedRag: boolean): string {
+  return (
+    '\n\nDEUTSCHE ARBEITSSPRACHE\n\n' +
+    'Schreibe title und answer ausschließlich auf Deutsch.\n' +
+    'Die Frage und der Gesprächsverlauf können obersorbisch sein. Das ändert die Ausgabesprache nicht.\n' +
+    (translatedRag
+      ? 'Inhalte von TYPE: rag sind deutsche Übersetzungen obersorbischer Dokumente.\n'
+      : '')
+  )
+}
+
 function buildResearchSystemPrompt(params: {
   mode: 'rag' | 'web'
   hasWebSources: boolean
   persona: Persona
+  reasonInGerman: boolean
 }): string {
   let prompt =
     `Heutiges Datum: ${todayIso()}.\n` +
@@ -112,10 +128,14 @@ function buildResearchSystemPrompt(params: {
     'title ist eine kurze Überschrift von höchstens 60 Zeichen ohne abschließenden Punkt.\n' +
     'sources_used enthält ausschließlich die Source-IDs, die tatsächlich im Antworttext belegt werden.'
 
+  if (params.reasonInGerman) {
+    prompt += germanReasoningNote(params.mode === 'rag')
+  }
+
   return prompt
 }
 
-function buildGeneralSystemPrompt(persona: Persona): string {
+function buildGeneralSystemPrompt(persona: Persona, reasonInGerman: boolean): string {
   let prompt =
     `Heutiges Datum: ${todayIso()}. ` +
     `${persona.description}\n` +
@@ -126,6 +146,10 @@ function buildGeneralSystemPrompt(persona: Persona): string {
     'Formatiere den Antworttext in einfachem Markdown (Absätze, "- " Listen, **fett**).\n' +
     'OUTPUT: Gib ausschließlich JSON mit language, title, answer und sources_used zurück. ' +
     'sources_used muss ein leeres Array sein.'
+
+  if (reasonInGerman) {
+    prompt += germanReasoningNote(false)
+  }
 
   return prompt
 }
@@ -228,15 +252,110 @@ async function completeStructuredAnswer(
 }
 
 function germanQuestionTranslation(
-  outputLanguage: AnswerLanguage,
   originalQuestion: string,
   questionDe: string,
 ): string | null {
-  if (outputLanguage !== 'hsb') return null
   const original = originalQuestion.trim()
   const german = questionDe.trim()
   if (!german || german === original) return null
   return german
+}
+
+function modelLanguage(
+  outputLanguage: AnswerLanguage,
+  reasonInGerman: boolean,
+): AnswerLanguage {
+  return reasonInGerman ? 'de' : outputLanguage
+}
+
+/** Prompt copies of RAG chunks. Citations keep the objects in `cited`. */
+function sourcesForPrompt(cited: Source[], promptSources?: Source[]): Source[] {
+  if (!promptSources) return cited
+  const byId = new Map(promptSources.map(source => [source.id, source]))
+  return cited.map(source => byId.get(source.id) ?? source)
+}
+
+async function translateFinishedAnswerToHsb(
+  title: string,
+  answer: string,
+): Promise<{ title: string; answer: string }> {
+  const masked = maskSourceRefs(answer)
+  const [translatedTitle, translatedAnswer] = await Promise.all([
+    sotraClient.translateDeToHsb(title),
+    sotraClient.translateDeToHsb(masked.text),
+  ])
+  const titleOut = translatedTitle.trim() || title
+
+  if (sourceRefMasksIntact(translatedAnswer, masked.refs.length)) {
+    const answerOut = unmaskSourceRefs(translatedAnswer, masked.refs).trim()
+    return { title: titleOut, answer: answerOut || answer }
+  }
+
+  chatTimingLog('answer translation dropped source refs, translating in segments')
+  const pieces = answer.split(/(\[\[S\d+\]\])/g)
+  const translatedPieces = await Promise.all(
+    pieces.map(piece => {
+      if (/^\[\[S\d+\]\]$/.test(piece) || !piece.trim()) return Promise.resolve(piece)
+      return sotraClient.translateDeToHsb(piece).then(text => {
+        const trimmed = text.trim()
+        if (!trimmed) return piece
+        const leading = piece.match(/^\s*/)?.[0] ?? ''
+        const trailing = piece.match(/\s*$/)?.[0] ?? ''
+        return `${leading}${trimmed}${trailing}`
+      })
+    }),
+  )
+  return { title: titleOut, answer: translatedPieces.join('').trim() || answer }
+}
+
+async function finishAnswer(
+  params: {
+    outputLanguage: AnswerLanguage
+    reasonInGerman: boolean
+    persona: Persona
+  },
+  result: {
+    language: AnswerLanguage
+    title: string
+    answer: string
+    sources: Source[]
+    sourceStrategy: 'rag' | 'web' | 'general'
+  },
+): Promise<AnswerResult> {
+  const language =
+    params.reasonInGerman || params.persona.language !== 'auto'
+      ? params.outputLanguage
+      : result.language
+
+  if (!params.reasonInGerman || params.outputLanguage !== 'hsb') {
+    return { ...result, language }
+  }
+
+  // The model was told to write German. If it answered in Upper Sorbian anyway,
+  // a second translation would damage that text.
+  if (result.language === 'hsb') {
+    chatTimingLog('answer already Upper Sorbian, skipping DE→HSB')
+    return { ...result, language: 'hsb' }
+  }
+
+  try {
+    const translated = await translateFinishedAnswerToHsb(result.title, result.answer)
+    chatTimingLog('answer translated DE→HSB', {
+      titleChars: translated.title.length,
+      answerChars: translated.answer.length,
+    })
+    return {
+      ...result,
+      language: 'hsb',
+      title: translated.title,
+      answer: translated.answer,
+    }
+  } catch (error) {
+    chatTimingLog('answer translation DE→HSB failed, keeping German', {
+      reason: error instanceof Error ? error.message : String(error),
+    })
+    return { ...result, language: 'de' }
+  }
 }
 
 function resolveStrategy(
@@ -268,9 +387,11 @@ function buildAnswerMessages(params: {
   persona: Persona
   history?: string[]
   outputLanguage: AnswerLanguage
+  reasonInGerman: boolean
   originalQuestion: string
   germanTranslation: string | null
   sources: Source[]
+  promptSources?: Source[]
 }): ChatMessage[] {
   return [
     {
@@ -279,6 +400,7 @@ function buildAnswerMessages(params: {
         mode: params.mode,
         hasWebSources: params.sources.some(source => source.type === 'web'),
         persona: params.persona,
+        reasonInGerman: params.reasonInGerman,
       }),
     },
     ...historyMessages(params.history, params.isPhoneCall),
@@ -291,10 +413,12 @@ function buildAnswerMessages(params: {
     {
       role: 'user',
       content: buildResearchUserPrompt({
-        outputLanguage: params.outputLanguage,
+        outputLanguage: modelLanguage(params.outputLanguage, params.reasonInGerman),
         originalQuestion: params.originalQuestion,
         germanTranslation: params.germanTranslation,
-        sources: toLlmSourceContent(params.sources),
+        sources: toLlmSourceContent(
+          sourcesForPrompt(params.sources, params.promptSources),
+        ),
         mode: params.mode,
       }),
     },
@@ -311,11 +435,17 @@ export const answerService = {
     isPhoneCall: boolean
     preferredStrategy?: 'rag' | 'web' | 'general'
     persona?: Persona
+    /** Model writes German. Upper Sorbian output is a Sotra translation of that text. */
+    reasonInGerman?: boolean
+    /** Same ids as `sources`, with RAG snippets translated for the prompt. */
+    promptSources?: Source[]
   }): Promise<AnswerResult> {
     const persona = params.persona
     if (!persona) {
       throw new Error('Persona fehlt.')
     }
+    const reasonInGerman = params.reasonInGerman === true
+    const writtenLanguage = modelLanguage(params.outputLanguage, reasonInGerman)
     let sourceStrategy = resolveStrategy(
       params.sources,
       params.preferredStrategy,
@@ -338,7 +468,6 @@ export const answerService = {
       }
 
       const germanTranslation = germanQuestionTranslation(
-        params.outputLanguage,
         params.originalQuestion,
         params.questionDe,
       )
@@ -346,13 +475,13 @@ export const answerService = {
       const messages: ChatMessage[] = [
         {
           role: 'system',
-          content: buildGeneralSystemPrompt(persona),
+          content: buildGeneralSystemPrompt(persona, reasonInGerman),
         },
         ...historyMessages(params.history, params.isPhoneCall),
         {
           role: 'user',
           content: buildResearchUserPrompt({
-            outputLanguage: params.outputLanguage,
+            outputLanguage: writtenLanguage,
             originalQuestion: params.originalQuestion,
             germanTranslation,
             sources: [],
@@ -363,16 +492,16 @@ export const answerService = {
 
       try {
         const result = await completeStructuredAnswer(messages, [])
-        return {
-          language:
-            persona.language === 'auto'
-              ? result.language
-              : params.outputLanguage,
-          title: result.title,
-          answer: result.answer,
-          sources: [],
-          sourceStrategy: 'general',
-        }
+        return finishAnswer(
+          { outputLanguage: params.outputLanguage, reasonInGerman, persona },
+          {
+            language: result.language,
+            title: result.title,
+            answer: result.answer,
+            sources: [],
+            sourceStrategy: 'general',
+          },
+        )
       } catch {
         const fallback = noSourcesMessage(params.outputLanguage)
         return {
@@ -386,7 +515,6 @@ export const answerService = {
     }
 
     const germanTranslation = germanQuestionTranslation(
-      params.outputLanguage,
       params.originalQuestion,
       params.questionDe,
     )
@@ -405,9 +533,11 @@ export const answerService = {
           persona,
           ...(params.history ? { history: params.history } : {}),
           outputLanguage: params.outputLanguage,
+          reasonInGerman,
           originalQuestion: params.originalQuestion,
           germanTranslation,
           sources: activeSources,
+          ...(params.promptSources ? { promptSources: params.promptSources } : {}),
         }),
         activeSources,
       )
@@ -451,9 +581,11 @@ export const answerService = {
             persona,
             ...(params.history ? { history: params.history } : {}),
             outputLanguage: params.outputLanguage,
+            reasonInGerman,
             originalQuestion: params.originalQuestion,
             germanTranslation,
             sources: webSources,
+            ...(params.promptSources ? { promptSources: params.promptSources } : {}),
           }),
           webSources,
         )
@@ -468,14 +600,15 @@ export const answerService = {
       }
     }
 
-    return {
-      // A persona with a fixed language must not be overridden by the model.
-      language:
-        persona.language === 'auto' ? result.language : params.outputLanguage,
-      title: result.title,
-      answer: result.answer,
-      sources: result.sources,
-      sourceStrategy,
-    }
+    return finishAnswer(
+      { outputLanguage: params.outputLanguage, reasonInGerman, persona },
+      {
+        language: result.language,
+        title: result.title,
+        answer: result.answer,
+        sources: result.sources,
+        sourceStrategy,
+      },
+    )
   },
 }

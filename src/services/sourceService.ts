@@ -230,6 +230,40 @@ function sourceIdFromMatch(match: RegExpMatchArray): string | null {
   return match[1] ?? match[2] ?? null
 }
 
+function sourceRefMaskPattern(): RegExp {
+  return /\{\{REF(\d+)\}\}/g
+}
+
+/** Hide [[S1]] markers so a translator cannot rewrite them. */
+export function maskSourceRefs(text: string): { text: string; refs: string[] } {
+  const refs: string[] = []
+  const masked = text.replace(/\[\[(S\d+)\]\]/g, (_full, id: string) => {
+    const token = `{{REF${refs.length}}}`
+    refs.push(id)
+    return token
+  })
+  return { text: masked, refs }
+}
+
+export function unmaskSourceRefs(text: string, refs: string[]): string {
+  return text.replace(sourceRefMaskPattern(), (token, index: string) => {
+    const id = refs[Number(index)]
+    return id ? `[[${id}]]` : token
+  })
+}
+
+export function sourceRefMasksIntact(text: string, refCount: number): boolean {
+  if (refCount === 0) return true
+  const found = new Set<number>()
+  for (const match of text.matchAll(sourceRefMaskPattern())) {
+    found.add(Number(match[1]))
+  }
+  for (let index = 0; index < refCount; index += 1) {
+    if (!found.has(index)) return false
+  }
+  return true
+}
+
 export function extractSourceRefsFromAnswer(answer: string): string[] {
   const ids: string[] = []
   const seen = new Set<string>()
