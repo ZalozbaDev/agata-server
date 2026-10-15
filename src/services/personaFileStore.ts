@@ -37,17 +37,49 @@ export async function saveStoredFile(params: {
   return upload.id
 }
 
-export async function deleteStoredFile(
-  fileId: Types.ObjectId | string | null | undefined,
+async function deleteBucketFile(
+  bucketName: string,
+  fileId: Types.ObjectId,
 ): Promise<void> {
-  if (!fileId) return
   try {
-    await fileBucket().delete(new Types.ObjectId(String(fileId)))
+    await fileBucket(bucketName).delete(fileId)
   } catch (error) {
     const message = error instanceof Error ? error.message.toLowerCase() : ''
     if (message.includes('not found') || message.includes('does not exist')) return
     throw error
   }
+}
+
+async function deleteMatchingFiles(
+  bucketName: string,
+  filter: mongoose.mongo.Filter<mongoose.mongo.GridFSFile>,
+): Promise<void> {
+  const files = await fileBucket(bucketName).find(filter).toArray()
+  for (const file of files) {
+    await deleteBucketFile(bucketName, file._id)
+  }
+}
+
+export async function deleteStoredFile(
+  fileId: Types.ObjectId | string | null | undefined,
+): Promise<void> {
+  if (!fileId) return
+  await deleteBucketFile(BUCKET_NAME, new Types.ObjectId(String(fileId)))
+}
+
+export async function deleteStoredFilesForDocument(
+  fileId: Types.ObjectId | string | null | undefined,
+  documentId: string,
+): Promise<void> {
+  const clauses: mongoose.mongo.Filter<mongoose.mongo.GridFSFile>[] = [
+    { 'metadata.documentId': documentId },
+  ]
+  if (fileId) clauses.push({ _id: new Types.ObjectId(String(fileId)) })
+  await deleteMatchingFiles(BUCKET_NAME, { $or: clauses })
+}
+
+export async function deleteStoredFilesForPersona(personaId: string): Promise<void> {
+  await deleteMatchingFiles(BUCKET_NAME, { 'metadata.personaId': personaId })
 }
 
 export function openStoredFile(fileId: Types.ObjectId | string): mongoose.mongo.GridFSBucketReadStream {
@@ -76,13 +108,18 @@ export async function deletePersonaImageFile(
   fileId: Types.ObjectId | string | null | undefined,
 ): Promise<void> {
   if (!fileId) return
-  try {
-    await fileBucket(IMAGE_BUCKET_NAME).delete(new Types.ObjectId(String(fileId)))
-  } catch (error) {
-    const message = error instanceof Error ? error.message.toLowerCase() : ''
-    if (message.includes('not found') || message.includes('does not exist')) return
-    throw error
-  }
+  await deleteBucketFile(IMAGE_BUCKET_NAME, new Types.ObjectId(String(fileId)))
+}
+
+export async function deletePersonaImagesForPersona(
+  personaId: string,
+  imageFileId?: Types.ObjectId | string | null,
+): Promise<void> {
+  const clauses: mongoose.mongo.Filter<mongoose.mongo.GridFSFile>[] = [
+    { 'metadata.personaId': personaId },
+  ]
+  if (imageFileId) clauses.push({ _id: new Types.ObjectId(String(imageFileId)) })
+  await deleteMatchingFiles(IMAGE_BUCKET_NAME, { $or: clauses })
 }
 
 export function openPersonaImage(

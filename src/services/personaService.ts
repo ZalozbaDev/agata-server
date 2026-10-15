@@ -15,7 +15,15 @@ import {
   deletePersonaSource,
   indexPersonaDocument,
 } from './ragDocumentClient'
-import { deleteStoredFile, deletePersonaImageFile, savePersonaImage, saveStoredFile } from './personaFileStore'
+import {
+  deletePersonaImageFile,
+  deletePersonaImagesForPersona,
+  deleteStoredFile,
+  deleteStoredFilesForDocument,
+  deleteStoredFilesForPersona,
+  savePersonaImage,
+  saveStoredFile,
+} from './personaFileStore'
 import {
   HttpError,
   MAX_DOCUMENTS_PER_PERSONA,
@@ -323,23 +331,11 @@ export const personaService = {
       throw new HttpError(403, 'Main und Sip können nicht gelöscht werden.')
     }
     const collection = ragCollectionFor(persona)
-    const documents = await PersonaDocument.find(scopedDocumentQuery(idOf(persona)))
+    const personaId = idOf(persona)
     await deletePersonaCollection(collection)
-    for (const document of documents) {
-      await deleteStoredFile(document.fileId).catch(error => {
-        console.error(
-          'Stored file cleanup failed:',
-          error instanceof Error ? error.name : 'unknown',
-        )
-      })
-    }
-    await PersonaDocument.deleteMany(scopedDocumentQuery(idOf(persona)))
-    await deletePersonaImageFile(persona.imageFileId).catch(error => {
-      console.error(
-        'Persona image cleanup failed:',
-        error instanceof Error ? error.name : 'unknown',
-      )
-    })
+    await deleteStoredFilesForPersona(personaId)
+    await deletePersonaImagesForPersona(personaId, persona.imageFileId)
+    await PersonaDocument.deleteMany(scopedDocumentQuery(personaId))
     await persona.deleteOne()
   },
 
@@ -459,12 +455,7 @@ export const personaService = {
     if (!document) throw new HttpError(404, 'Dokument nicht gefunden.')
     const collection = ragCollectionFor(persona)
     await deletePersonaSource(collection, document.ragSourceId)
-    await deleteStoredFile(document.fileId).catch(error => {
-      console.error(
-        'Stored file cleanup failed:',
-        error instanceof Error ? error.name : 'unknown',
-      )
-    })
+    await deleteStoredFilesForDocument(document.fileId, idOf(document))
     await document.deleteOne()
   },
 
