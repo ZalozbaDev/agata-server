@@ -576,6 +576,40 @@ export const personaService = {
     return runtimeFromDocument(doc)
   },
 
+  async publicAppearance(
+    key: string,
+  ): Promise<{ language: PersonaDocumentLanguage | null; hasImage: boolean } | null> {
+    const normalized = key.trim().toLowerCase()
+    if (!normalized || normalized.length > 128) return null
+    try {
+      const persona =
+        normalized === DEFAULT_PERSONA_ID ||
+        normalized === SIP_PERSONA_ID ||
+        PERSONA_SLUG_PATTERN.test(normalized)
+          ? await PersonaModel.findOne({ slug: normalized }).select(
+              'language imageFileId',
+            )
+          : isManagedPersonaId(normalized)
+            ? await PersonaModel.findById(normalized).select('language imageFileId')
+            : null
+      if (!persona) return null
+      const language = persona.language
+      return {
+        language:
+          language === 'de' || language === 'hsb' || language === 'dsb'
+            ? language
+            : null,
+        hasImage: Boolean(persona.imageFileId),
+      }
+    } catch (error) {
+      console.error(
+        'Persona appearance lookup failed:',
+        error instanceof Error ? error.name : 'unknown',
+      )
+      return null
+    }
+  },
+
   async publicName(key: string): Promise<string | null> {
     const normalized = key.trim().toLowerCase()
     if (!normalized || normalized.length > 128) return null

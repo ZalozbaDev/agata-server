@@ -4,6 +4,21 @@ import { personaService } from '../services/personaService'
 
 const router = Router()
 
+router.get('/:key/appearance', async (req: Request, res: Response) => {
+  try {
+    const appearance = await personaService.publicAppearance(
+      String(req.params['key'] ?? ''),
+    )
+    if (!appearance) {
+      res.status(404).json({ error: 'Persona nicht gefunden.' })
+      return
+    }
+    res.json(appearance)
+  } catch {
+    res.status(404).json({ error: 'Persona nicht gefunden.' })
+  }
+})
+
 router.get('/:key/name', async (req: Request, res: Response) => {
   try {
     const name = await personaService.publicName(String(req.params['key'] ?? ''))
