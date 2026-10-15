@@ -285,7 +285,10 @@ export function toRuntimePersona(persona: {
     ragTopK: persona.topK,
     webResultCount,
     webFallbackResultCount: webFallback,
-    language: 'auto',
+    language:
+      persona.documentLanguage === 'hsb' || persona.documentLanguage === 'de'
+        ? persona.documentLanguage
+        : 'auto',
     ...(persona.documentLanguage
       ? { documentLanguage: persona.documentLanguage }
       : {}),

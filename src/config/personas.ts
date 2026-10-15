@@ -37,6 +37,11 @@ export function resolveOutputLanguage(
   detected: AnswerLanguage,
   requested?: AnswerLanguage,
 ): AnswerLanguage {
+  // The language chosen when the persona is created fixes the answer.
+  // A short question such as "Serbske Nowiny?" must not switch it to German.
+  if (persona.documentLanguage === 'hsb' || persona.documentLanguage === 'de') {
+    return persona.documentLanguage
+  }
   if (persona.language !== 'auto') return persona.language
   return requested ?? detected
 }

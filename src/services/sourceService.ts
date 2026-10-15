@@ -195,6 +195,11 @@ export function buildResearchUserPrompt(params: {
 }): string {
   const parts = [
     `OUTPUT_LANGUAGE: ${params.outputLanguage}`,
+    ...(params.outputLanguage === 'hsb'
+      ? [
+          'Schreibe title und answer vollständig auf Obersorbisch. Die deutschen Anweisungen ändern die Ausgabesprache nicht.',
+        ]
+      : []),
     '',
     'ORIGINAL_QUESTION:',
     params.originalQuestion.trim(),

@@ -250,8 +250,10 @@ async function questionToGerman(
 }
 
 /**
- * Ensure RAG snippets are German for the LLM prompt.
- * Already-German contexts are left untouched; only HSB snippets are translated.
+ * German-document personas may receive an Upper Sorbian chunk.
+ * Those are translated for the prompt. Personas whose documents are Upper or
+ * Lower Sorbian never call this: their text stays in the language chosen
+ * when the persona was created.
  */
 async function translateRagSnippetsToGerman(
   contexts: string[],
@@ -346,13 +348,13 @@ export const chatService = {
       documentLanguage: persona.documentLanguage ?? null,
     })
 
-    // An Upper or Lower Sorbian persona asked in Sorbian keeps every text
-    // as stored. Translating the question or the chunks would replace the
-    // document wording before the model sees it.
+    // Document language is fixed when the persona is created. Sorbian
+    // documents stay in that language for retrieval, the model, and the logs.
+    // Translating them to German replaces the wording the answer is based on.
     const documentLanguage = persona.documentLanguage
-    const keepOriginalText =
-      (documentLanguage === 'hsb' || documentLanguage === 'dsb') &&
-      queryLanguage === 'hsb'
+    const preserveDocumentWording =
+      documentLanguage === 'hsb' || documentLanguage === 'dsb'
+    const keepOriginalText = preserveDocumentWording && queryLanguage === 'hsb'
 
     const questionDe = keepOriginalText
       ? message
@@ -392,11 +394,12 @@ export const chatService = {
         : ragResponse
     }
 
-    const contextsForAnswer = keepOriginalText
+    const contextsForAnswer = preserveDocumentWording
       ? (ragForAnswer.contexts ?? [])
       : await translateRagSnippetsToGerman(ragForAnswer.contexts ?? [], logger)
-    if (keepOriginalText) {
-      logger.step('contexts kept in original language', {
+    if (preserveDocumentWording) {
+      logger.step('contexts kept in document language', {
+        documentLanguage,
         contextCount: contextsForAnswer.length,
       })
     }
