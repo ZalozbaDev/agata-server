@@ -1,6 +1,7 @@
 import { randomBytes, timingSafeEqual } from 'crypto'
 import {
   DEFAULT_PERSONA_ID,
+  DEFAULT_SPEAKER_ID,
   SIP_PERSONA_ID,
   type Persona,
   type PersonaDocumentLanguage,
@@ -26,6 +27,8 @@ export const MAX_WEB_RESULTS = 20
 export const MAX_UPLOAD_BYTES = 20 * 1024 * 1024
 export const MAX_IMAGE_BYTES = 5 * 1024 * 1024
 export const MAX_DOCUMENTS_PER_PERSONA = 100
+export const MAX_SPEAKER_ID_LENGTH = 64
+const SPEAKER_ID_PATTERN = /^[a-zA-Z0-9][a-zA-Z0-9_.-]{0,63}$/
 
 const FALLBACK_PROMPT =
   'Du bist eine sachliche Auskunfts-Assistentin und antwortest ausschließlich auf Basis der hinterlegten Dokumente.'
@@ -55,6 +58,7 @@ export type PersonaWriteInput = {
   topK?: unknown
   webResultCount?: unknown
   tag?: unknown
+  speakerId?: unknown
   visibility?: unknown
   allowExternalDelete?: unknown
 }
@@ -67,6 +71,7 @@ export type NormalizedPersona = {
   topK: number
   webResultCount: number
   tag: string
+  speakerId: string
   visibility: PersonaVisibility
   allowExternalDelete: boolean
 }
@@ -268,6 +273,7 @@ export function toRuntimePersona(persona: {
   webFallbackResultCount?: number
   documentLanguage?: PersonaDocumentLanguage
   allowGeneralKnowledge?: boolean
+  speakerId?: string
 }): Persona {
   const prompt = persona.prompt.trim()
   const webResultCount = normalizeWebResultCount(persona.webResultCount)
@@ -294,6 +300,7 @@ export function toRuntimePersona(persona: {
       : {}),
     description: prompt || FALLBACK_PROMPT,
     allowGeneralKnowledge: persona.allowGeneralKnowledge === true,
+    speakerId: persona.speakerId?.trim() || DEFAULT_SPEAKER_ID,
   }
 }
 
@@ -412,6 +419,24 @@ function readVisibility(value: unknown, required: boolean): PersonaVisibility | 
   return value
 }
 
+export function readSpeakerId(value: unknown, required: boolean): string | undefined {
+  if (value === undefined || value === null || (typeof value === 'string' && !value.trim())) {
+    if (required) return DEFAULT_SPEAKER_ID
+    return undefined
+  }
+  if (typeof value !== 'string') {
+    throw new HttpError(400, 'Die Stimme muss ein Text sein.')
+  }
+  const speakerId = value.trim()
+  if (
+    speakerId.length > MAX_SPEAKER_ID_LENGTH ||
+    !SPEAKER_ID_PATTERN.test(speakerId)
+  ) {
+    throw new HttpError(400, 'Die Stimme ist ungültig.')
+  }
+  return speakerId
+}
+
 function readBoolean(value: unknown, label: string): boolean | undefined {
   if (value === undefined || value === null) return undefined
   if (typeof value !== 'boolean') {
@@ -463,6 +488,7 @@ export function parseCreatePersona(input: PersonaWriteInput): NormalizedPersona 
     topK,
     webResultCount: readWebResultCount(input.webResultCount, false) ?? MIN_WEB_RESULTS,
     tag: readString(input.tag, 'Tag', MAX_TAG_LENGTH, false),
+    speakerId: readSpeakerId(input.speakerId, true) ?? DEFAULT_SPEAKER_ID,
     visibility,
     allowExternalDelete: readBoolean(input.allowExternalDelete, 'Externes Löschen') ?? false,
   }
@@ -496,6 +522,9 @@ export function parseUpdatePersona(
     next.webResultCount = webResultCount
   }
   if ('tag' in input) next.tag = readString(input.tag, 'Tag', MAX_TAG_LENGTH, false)
+  if ('speakerId' in input) {
+    next.speakerId = readSpeakerId(input.speakerId, true) ?? DEFAULT_SPEAKER_ID
+  }
   if ('visibility' in input) {
     const visibility = readVisibility(input.visibility, true)
     if (visibility) next.visibility = visibility

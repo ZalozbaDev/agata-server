@@ -30,9 +30,54 @@ export interface BamborakAudioFromTextResult {
   sampleRate: number
 }
 
-export async function fetchBamborakSpeakers(): Promise<unknown> {
+export interface BamborakSpeaker {
+  id: string
+  name: string
+  language: string
+}
+
+const SPEAKER_ID_PATTERN = /^[a-zA-Z0-9][a-zA-Z0-9_.-]{0,63}$/
+
+export function normalizeBamborakSpeakers(payload: unknown): BamborakSpeaker[] {
+  const raw = Array.isArray(payload)
+    ? payload
+    : payload &&
+        typeof payload === 'object' &&
+        Array.isArray((payload as { speakers?: unknown }).speakers)
+      ? (payload as { speakers: unknown[] }).speakers
+      : []
+
+  const speakers: BamborakSpeaker[] = []
+  const seen = new Set<string>()
+  for (const item of raw) {
+    const speaker = speakerFromUnknown(item)
+    if (!speaker || seen.has(speaker.id)) continue
+    seen.add(speaker.id)
+    speakers.push(speaker)
+  }
+  return speakers
+}
+
+function speakerFromUnknown(item: unknown): BamborakSpeaker | null {
+  if (typeof item === 'string') {
+    const id = item.trim()
+    if (!SPEAKER_ID_PATTERN.test(id)) return null
+    return { id, name: id, language: '' }
+  }
+  if (!item || typeof item !== 'object') return null
+  const record = item as { id?: unknown; name?: unknown; language?: unknown }
+  const id = typeof record.id === 'string' ? record.id.trim() : ''
+  if (!SPEAKER_ID_PATTERN.test(id)) return null
+  const name =
+    typeof record.name === 'string' && record.name.trim() ? record.name.trim() : id
+  const language =
+    typeof record.language === 'string' ? record.language.trim() : ''
+  return { id, name, language }
+}
+
+export async function fetchBamborakSpeakers(): Promise<BamborakSpeaker[]> {
   const response = await axios.get(`${bamborak_api_base_url}/fetch_speakers/`)
-  return response.data
+  return normalizeBamborakSpeakers(response.data)
 }
 
 export async function generateBamborakAudioFromText(

@@ -1,4 +1,5 @@
 import mongoose, { Document, Schema } from 'mongoose'
+import { DEFAULT_SPEAKER_ID } from '../config/personas'
 
 export type PersonaVisibility = 'public' | 'private'
 
@@ -23,6 +24,8 @@ export interface IPersona extends Document {
   imageFileId?: mongoose.Types.ObjectId
   imageMimeType?: string
   tag: string
+  /** Bamborak speaker id. Chat answers are read aloud with this voice. */
+  speakerId: string
   visibility: PersonaVisibility
   allowExternalDelete: boolean
   createdAt: Date
@@ -103,6 +106,12 @@ const personaSchema = new Schema<IPersona>(
       default: '',
       trim: true,
       maxlength: 80,
+    },
+    speakerId: {
+      type: String,
+      trim: true,
+      default: DEFAULT_SPEAKER_ID,
+      maxlength: 64,
     },
     visibility: {
       type: String,

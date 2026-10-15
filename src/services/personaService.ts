@@ -1,6 +1,7 @@
 import { Types } from 'mongoose'
 import {
   DEFAULT_PERSONA_ID,
+  DEFAULT_SPEAKER_ID,
   SIP_PERSONA_ID,
   type Persona,
   type PersonaDocumentLanguage,
@@ -66,6 +67,7 @@ export type AdminPersonaDto = {
   webResultCount: number
   hasImage: boolean
   tag: string
+  speakerId: string
   visibility: 'public' | 'private'
   allowExternalDelete: boolean
   protected: boolean
@@ -109,6 +111,7 @@ function toAdminDto(persona: IPersona, documentCount: number): AdminPersonaDto {
     webResultCount: persona.webResultCount ?? 0,
     hasImage: Boolean(persona.imageFileId),
     tag: persona.tag ?? '',
+    speakerId: persona.speakerId?.trim() || DEFAULT_SPEAKER_ID,
     visibility: persona.visibility,
     allowExternalDelete: persona.allowExternalDelete,
     protected: persona.protected === true || isSystemPersonaSlug(persona.slug),
@@ -197,6 +200,7 @@ function applyNormalized(
     persona.webResultCount = next.webResultCount
   }
   if (next.tag !== undefined) persona.tag = next.tag
+  if (next.speakerId !== undefined) persona.speakerId = next.speakerId
   if (next.visibility !== undefined) persona.visibility = next.visibility
   if (next.allowExternalDelete !== undefined) {
     persona.allowExternalDelete = next.allowExternalDelete
@@ -228,6 +232,7 @@ export const personaService = {
       topK: parsed.topK,
       webResultCount: parsed.webResultCount,
       tag: parsed.tag,
+      speakerId: parsed.speakerId,
       visibility: parsed.visibility,
       allowExternalDelete: parsed.allowExternalDelete,
     })
@@ -569,7 +574,11 @@ export const personaService = {
 
   async publicAppearance(
     key: string,
-  ): Promise<{ language: PersonaDocumentLanguage | null; hasImage: boolean } | null> {
+  ): Promise<{
+    language: PersonaDocumentLanguage | null
+    hasImage: boolean
+    speakerId: string
+  } | null> {
     const normalized = key.trim().toLowerCase()
     if (!normalized || normalized.length > 128) return null
     try {
@@ -578,10 +587,12 @@ export const personaService = {
         normalized === SIP_PERSONA_ID ||
         PERSONA_SLUG_PATTERN.test(normalized)
           ? await PersonaModel.findOne({ slug: normalized }).select(
-              'language imageFileId',
+              'language imageFileId speakerId',
             )
           : isManagedPersonaId(normalized)
-            ? await PersonaModel.findById(normalized).select('language imageFileId')
+            ? await PersonaModel.findById(normalized).select(
+                'language imageFileId speakerId',
+              )
             : null
       if (!persona) return null
       const language = persona.language
@@ -591,6 +602,7 @@ export const personaService = {
             ? language
             : null,
         hasImage: Boolean(persona.imageFileId),
+        speakerId: persona.speakerId?.trim() || DEFAULT_SPEAKER_ID,
       }
     } catch (error) {
       console.error(
@@ -652,6 +664,7 @@ function runtimeFromDocument(doc: IPersona): Persona {
     topK: doc.topK,
     webResultCount: doc.webResultCount ?? 0,
     allowGeneralKnowledge: doc.allowGeneralKnowledge === true,
+    speakerId: doc.speakerId,
     ...(doc.language ? { documentLanguage: doc.language } : {}),
     ...(doc.ragCollection?.trim() && isPersonaCollectionName(doc.ragCollection.trim())
       ? { collection: doc.ragCollection.trim() }

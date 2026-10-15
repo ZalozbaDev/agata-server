@@ -49,7 +49,7 @@ router.get('/visemes', (_req: Request, res: Response) => {
 router.get('/speakers', async (_req: Request, res: Response) => {
   try {
     const speakers = await fetchBamborakSpeakers()
-    res.json(speakers)
+    res.json({ speakers, count: speakers.length })
   } catch (error) {
     console.error('Error fetching speakers:', error)
     res.status(400).json({ error: 'Failed to fetch speakers' })

@@ -36,6 +36,8 @@ export type ChatServiceResult = {
   timestamp: string
   sources: Source[]
   personaId: string
+  /** Bamborak speaker that should read `answer` aloud. */
+  speakerId: string
 }
 
 export type ChatServiceInput = {
@@ -306,6 +308,7 @@ export const chatService = {
         timestamp: new Date().toISOString(),
         sources: [],
         personaId: persona.id,
+        speakerId: persona.speakerId,
       }
     }
 
@@ -570,6 +573,7 @@ export const chatService = {
       timestamp: new Date().toISOString(),
       sources: answerResult.sources,
       personaId: persona.id,
+      speakerId: persona.speakerId,
     }
   },
 }

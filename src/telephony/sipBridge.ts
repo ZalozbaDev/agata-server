@@ -513,11 +513,11 @@ function previewForLog(input: string, maxLen = 1200): string {
   return `${s.slice(0, maxLen)}…(+${s.length - maxLen} chars)`
 }
 
-async function ttsToPcm16le8k(text: string): Promise<Buffer> {
+async function ttsToPcm16le8k(text: string, speakerId?: string): Promise<Buffer> {
   const trimmed = text.trim()
   if (!trimmed) return Buffer.alloc(0)
 
-  const speaker_id = process.env['DEFAULT_BAMBORAK_SPEAKER_ID']
+  const speaker_id = speakerId?.trim() || process.env['DEFAULT_BAMBORAK_SPEAKER_ID']
   const ttsResult = await generateBamborakAudioFromText({
     text: trimmed,
     format: 'wav',
@@ -670,6 +670,7 @@ async function streamTtsTextToPlayback(
   ws: WebSocket,
   session: CallSession,
   text: string,
+  speakerId?: string,
 ): Promise<void> {
   const chunks = splitTextForTts(text)
   if (!chunks.length) return
@@ -685,7 +686,7 @@ async function streamTtsTextToPlayback(
 
     let pcm16: Buffer
     try {
-      pcm16 = await ttsToPcm16le8k(chunkText)
+      pcm16 = await ttsToPcm16le8k(chunkText, speakerId)
     } catch (e) {
       // eslint-disable-next-line no-console
       console.warn(
@@ -1002,6 +1003,7 @@ export function startSipClientBridge(): void {
         session.lastTranscript = plainText
 
         let replyText: string | null = null
+        let replySpeaker: string | undefined
         try {
           // Ensure the Visitor exists for this phone identity before we fetch/persist history.
           await ensurePhoneVisitor(session.visitorIpAddress)
@@ -1013,6 +1015,7 @@ export function startSipClientBridge(): void {
             personaId: SIP_PERSONA_ID,
           })
           replyText = result.message || null
+          replySpeaker = result.speakerId
         } catch (e) {
           // eslint-disable-next-line no-console
           console.error('[SIP] chat failed', e)
@@ -1025,7 +1028,7 @@ export function startSipClientBridge(): void {
 
         try {
           if (!ws || ws.readyState !== WebSocket.OPEN) return
-          await streamTtsTextToPlayback(ws, session, replyText)
+          await streamTtsTextToPlayback(ws, session, replyText, replySpeaker)
         } catch (e) {
           // eslint-disable-next-line no-console
           console.error('[SIP] tts failed', e)

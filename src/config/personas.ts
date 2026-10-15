@@ -24,12 +24,16 @@ export type Persona = {
   description: string
   /** When false the assistant never answers from general model knowledge */
   allowGeneralKnowledge: boolean
+  /** Bamborak speaker that reads this persona's answers aloud. */
+  speakerId: string
 }
 
 /** Used when the website does not select another persona. Stored in Mongo. */
 export const DEFAULT_PERSONA_ID = 'main'
 /** Used when the SIP client answers a call. Stored in Mongo. */
 export const SIP_PERSONA_ID = 'sip'
+/** Bamborak voice used when a persona has none of its own. */
+export const DEFAULT_SPEAKER_ID = 'katka_2025_07'
 
 /** Language the answer must be written in, given the persona and detected language. */
 export function resolveOutputLanguage(

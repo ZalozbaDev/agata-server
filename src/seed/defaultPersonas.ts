@@ -1,4 +1,8 @@
-import { DEFAULT_PERSONA_ID, SIP_PERSONA_ID } from '../config/personas'
+import {
+  DEFAULT_PERSONA_ID,
+  DEFAULT_SPEAKER_ID,
+  SIP_PERSONA_ID,
+} from '../config/personas'
 import { Persona } from '../models/Persona'
 import {
   generatePersonaToken,
@@ -40,6 +44,7 @@ export async function seedDefaultPersonas(): Promise<void> {
         allowGeneralKnowledge: true,
         protected: true,
         tag: '',
+        speakerId: DEFAULT_SPEAKER_ID,
         visibility: 'private',
         allowExternalDelete: false,
       })
@@ -50,10 +55,12 @@ export async function seedDefaultPersonas(): Promise<void> {
       protected?: boolean
       prompt?: string
       language?: 'hsb'
+      speakerId?: string
     } = {}
     if (existing.protected !== true) patch.protected = true
     if (!existing.prompt?.trim()) patch.prompt = seed.prompt
     if (existing.language !== 'hsb') patch.language = 'hsb'
+    if (!existing.speakerId?.trim()) patch.speakerId = DEFAULT_SPEAKER_ID
     const update: {
       $set?: typeof patch
       $unset?: { ragCollection: 1 }
@@ -69,4 +76,11 @@ export async function seedDefaultPersonas(): Promise<void> {
       await Persona.updateOne({ _id: existing._id }, update)
     }
   }
+
+  await Persona.updateMany(
+    {
+      $or: [{ speakerId: { $exists: false } }, { speakerId: null }, { speakerId: '' }],
+    },
+    { $set: { speakerId: DEFAULT_SPEAKER_ID } },
+  )
 }
