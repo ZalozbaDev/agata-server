@@ -27,6 +27,8 @@ export interface IPersona extends Document {
   /** Bamborak speaker id. Chat answers are read aloud with this voice. */
   speakerId: string
   visibility: PersonaVisibility
+  /** Token holders may upload documents, independent of link visibility. */
+  allowExternalUpload: boolean
   allowExternalDelete: boolean
   createdAt: Date
   updatedAt: Date
@@ -118,6 +120,10 @@ const personaSchema = new Schema<IPersona>(
       enum: ['public', 'private'],
       default: 'private',
       required: true,
+    },
+    allowExternalUpload: {
+      type: Boolean,
+      default: false,
     },
     allowExternalDelete: {
       type: Boolean,

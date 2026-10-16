@@ -46,6 +46,7 @@ export async function seedDefaultPersonas(): Promise<void> {
         tag: '',
         speakerId: DEFAULT_SPEAKER_ID,
         visibility: 'private',
+        allowExternalUpload: false,
         allowExternalDelete: false,
       })
       continue
@@ -82,5 +83,15 @@ export async function seedDefaultPersonas(): Promise<void> {
       $or: [{ speakerId: { $exists: false } }, { speakerId: null }, { speakerId: '' }],
     },
     { $set: { speakerId: DEFAULT_SPEAKER_ID } },
+  )
+
+  // Public personas could already be filled by anyone with the access link.
+  await Persona.updateMany(
+    { allowExternalUpload: { $exists: false }, visibility: 'public' },
+    { $set: { allowExternalUpload: true } },
+  )
+  await Persona.updateMany(
+    { allowExternalUpload: { $exists: false } },
+    { $set: { allowExternalUpload: false } },
   )
 }

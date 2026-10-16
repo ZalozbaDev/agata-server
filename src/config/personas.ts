@@ -24,6 +24,8 @@ export type Persona = {
   description: string
   /** When false the assistant never answers from general model knowledge */
   allowGeneralKnowledge: boolean
+  /** Public personas cite PDFs in chat. Private personas omit those links. */
+  showSourceLinks: boolean
   /** Bamborak speaker that reads this persona's answers aloud. */
   speakerId: string
 }

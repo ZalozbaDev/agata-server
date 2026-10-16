@@ -60,6 +60,7 @@ export type PersonaWriteInput = {
   tag?: unknown
   speakerId?: unknown
   visibility?: unknown
+  allowExternalUpload?: unknown
   allowExternalDelete?: unknown
 }
 
@@ -73,6 +74,7 @@ export type NormalizedPersona = {
   tag: string
   speakerId: string
   visibility: PersonaVisibility
+  allowExternalUpload: boolean
   allowExternalDelete: boolean
 }
 
@@ -114,16 +116,17 @@ export function scopedDocumentQuery(
 
 export function canViewDocuments(
   visibility: PersonaVisibility,
+  allowExternalUpload: boolean,
   actor: PersonaActor,
 ): boolean {
-  return actor === 'admin' || visibility === 'public'
+  return actor === 'admin' || visibility === 'public' || allowExternalUpload
 }
 
 export function canUploadDocuments(
-  visibility: PersonaVisibility,
+  allowExternalUpload: boolean,
   actor: PersonaActor,
 ): boolean {
-  return actor === 'admin' || visibility === 'public'
+  return actor === 'admin' || allowExternalUpload
 }
 
 export function canDeleteDocuments(
@@ -137,6 +140,7 @@ export function canDeleteDocuments(
 
 export function assertTokenDocumentAccess(params: {
   visibility: PersonaVisibility
+  allowExternalUpload: boolean
   allowExternalDelete: boolean
   action: 'view' | 'upload' | 'delete'
 }): void {
@@ -148,10 +152,19 @@ export function assertTokenDocumentAccess(params: {
           'token',
         )
       : params.action === 'upload'
-        ? canUploadDocuments(params.visibility, 'token')
-        : canViewDocuments(params.visibility, 'token')
+        ? canUploadDocuments(params.allowExternalUpload, 'token')
+        : canViewDocuments(
+            params.visibility,
+            params.allowExternalUpload,
+            'token',
+          )
 
   if (!allowed) {
+    if (params.action === 'upload') {
+      throw new PersonaAccessError(
+        'Hochladen ist für diese Persona nicht freigegeben.',
+      )
+    }
     throw new PersonaAccessError(
       params.visibility === 'private'
         ? 'Diese Persona ist privat.'
@@ -273,6 +286,7 @@ export function toRuntimePersona(persona: {
   webFallbackResultCount?: number
   documentLanguage?: PersonaDocumentLanguage
   allowGeneralKnowledge?: boolean
+  showSourceLinks?: boolean
   speakerId?: string
 }): Persona {
   const prompt = persona.prompt.trim()
@@ -300,6 +314,7 @@ export function toRuntimePersona(persona: {
       : {}),
     description: prompt || FALLBACK_PROMPT,
     allowGeneralKnowledge: persona.allowGeneralKnowledge === true,
+    showSourceLinks: persona.showSourceLinks === true,
     speakerId: persona.speakerId?.trim() || DEFAULT_SPEAKER_ID,
   }
 }
@@ -318,6 +333,8 @@ export function toPublicPersonaView(persona: {
   name: string
   tag: string
   language?: PersonaDocumentLanguage | null
+  visibility: PersonaVisibility
+  allowExternalUpload: boolean
   allowExternalDelete: boolean
   documentCount: number
 }): PublicPersonaView {
@@ -326,8 +343,8 @@ export function toPublicPersonaView(persona: {
     tag: persona.tag,
     language: persona.language ?? null,
     visibility: 'public',
-    canUpload: true,
-    canDelete: persona.allowExternalDelete,
+    canUpload: persona.allowExternalUpload,
+    canDelete: persona.visibility === 'public' && persona.allowExternalDelete,
     documentCount: persona.documentCount,
   }
 }
@@ -490,6 +507,8 @@ export function parseCreatePersona(input: PersonaWriteInput): NormalizedPersona 
     tag: readString(input.tag, 'Tag', MAX_TAG_LENGTH, false),
     speakerId: readSpeakerId(input.speakerId, true) ?? DEFAULT_SPEAKER_ID,
     visibility,
+    allowExternalUpload:
+      readBoolean(input.allowExternalUpload, 'Externes Hochladen') ?? false,
     allowExternalDelete: readBoolean(input.allowExternalDelete, 'Externes Löschen') ?? false,
   }
 }
@@ -528,6 +547,13 @@ export function parseUpdatePersona(
   if ('visibility' in input) {
     const visibility = readVisibility(input.visibility, true)
     if (visibility) next.visibility = visibility
+  }
+  if ('allowExternalUpload' in input) {
+    const allow = readBoolean(input.allowExternalUpload, 'Externes Hochladen')
+    if (allow === undefined) {
+      throw new HttpError(400, 'Externes Hochladen muss true oder false sein.')
+    }
+    next.allowExternalUpload = allow
   }
   if ('allowExternalDelete' in input) {
     const allow = readBoolean(input.allowExternalDelete, 'Externes Löschen')

@@ -69,6 +69,7 @@ export type AdminPersonaDto = {
   tag: string
   speakerId: string
   visibility: 'public' | 'private'
+  allowExternalUpload: boolean
   allowExternalDelete: boolean
   protected: boolean
   documentCount: number
@@ -113,6 +114,7 @@ function toAdminDto(persona: IPersona, documentCount: number): AdminPersonaDto {
     tag: persona.tag ?? '',
     speakerId: persona.speakerId?.trim() || DEFAULT_SPEAKER_ID,
     visibility: persona.visibility,
+    allowExternalUpload: persona.allowExternalUpload === true,
     allowExternalDelete: persona.allowExternalDelete,
     protected: persona.protected === true || isSystemPersonaSlug(persona.slug),
     documentCount,
@@ -202,6 +204,9 @@ function applyNormalized(
   if (next.tag !== undefined) persona.tag = next.tag
   if (next.speakerId !== undefined) persona.speakerId = next.speakerId
   if (next.visibility !== undefined) persona.visibility = next.visibility
+  if (next.allowExternalUpload !== undefined) {
+    persona.allowExternalUpload = next.allowExternalUpload
+  }
   if (next.allowExternalDelete !== undefined) {
     persona.allowExternalDelete = next.allowExternalDelete
   }
@@ -234,6 +239,7 @@ export const personaService = {
       tag: parsed.tag,
       speakerId: parsed.speakerId,
       visibility: parsed.visibility,
+      allowExternalUpload: parsed.allowExternalUpload,
       allowExternalDelete: parsed.allowExternalDelete,
     })
     const saved = await savePersona(persona)
@@ -468,6 +474,7 @@ export const personaService = {
     const persona = await requirePersonaByToken(token)
     assertTokenDocumentAccess({
       visibility: persona.visibility,
+      allowExternalUpload: persona.allowExternalUpload === true,
       allowExternalDelete: persona.allowExternalDelete,
       action: 'view',
     })
@@ -475,6 +482,8 @@ export const personaService = {
       name: persona.name,
       tag: persona.tag ?? '',
       language: persona.language ?? null,
+      visibility: persona.visibility,
+      allowExternalUpload: persona.allowExternalUpload === true,
       allowExternalDelete: persona.allowExternalDelete,
       documentCount: await countFor(idOf(persona)),
     })
@@ -484,6 +493,7 @@ export const personaService = {
     const persona = await requirePersonaByToken(token)
     assertTokenDocumentAccess({
       visibility: persona.visibility,
+      allowExternalUpload: persona.allowExternalUpload === true,
       allowExternalDelete: persona.allowExternalDelete,
       action: 'view',
     })
@@ -500,6 +510,7 @@ export const personaService = {
     const persona = await requirePersonaByToken(token)
     assertTokenDocumentAccess({
       visibility: persona.visibility,
+      allowExternalUpload: persona.allowExternalUpload === true,
       allowExternalDelete: persona.allowExternalDelete,
       action: 'upload',
     })
@@ -510,6 +521,7 @@ export const personaService = {
     const persona = await requirePersonaByToken(token)
     assertTokenDocumentAccess({
       visibility: persona.visibility,
+      allowExternalUpload: persona.allowExternalUpload === true,
       allowExternalDelete: persona.allowExternalDelete,
       action: 'delete',
     })
@@ -520,6 +532,7 @@ export const personaService = {
     const persona = await requirePersonaByToken(token)
     assertTokenDocumentAccess({
       visibility: persona.visibility,
+      allowExternalUpload: persona.allowExternalUpload === true,
       allowExternalDelete: false,
       action: 'view',
     })
@@ -664,6 +677,7 @@ function runtimeFromDocument(doc: IPersona): Persona {
     topK: doc.topK,
     webResultCount: doc.webResultCount ?? 0,
     allowGeneralKnowledge: doc.allowGeneralKnowledge === true,
+    showSourceLinks: doc.visibility === 'public',
     speakerId: doc.speakerId,
     ...(doc.language ? { documentLanguage: doc.language } : {}),
     ...(doc.ragCollection?.trim() && isPersonaCollectionName(doc.ragCollection.trim())

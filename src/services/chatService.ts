@@ -13,6 +13,7 @@ import {
   countSourcesByType,
   normalizeRagSources,
   normalizeWebSources,
+  stripInvalidSourceRefs,
 } from './sourceService'
 import type { AnswerLanguage, Source } from '../types/source'
 import { detectQueryLanguage } from '../utils/language'
@@ -258,6 +259,14 @@ async function questionToGerman(
  * Text that is already German stays as it is. Citations of Upper Sorbian
  * documents keep the original snippet and do not use this result.
  */
+/** Private personas keep the answer, but not citation markers or source links. */
+function answerWithoutSourceLinks(answer: string): string {
+  return stripInvalidSourceRefs(answer, new Set())
+    .replace(/[ \t]{2,}/g, ' ')
+    .replace(/\s+([.,;:!?])/g, '$1')
+    .trim()
+}
+
 function withGermanRagSnippets(sources: Source[], germanSnippets: string[]): Source[] {
   const ragIds = sources
     .filter(source => source.type === 'rag')
@@ -575,7 +584,10 @@ export const chatService = {
       }),
     )
 
-    const responseMessage = answerResult.answer.trim()
+    const responseMessage = persona.showSourceLinks
+      ? answerResult.answer.trim()
+      : answerWithoutSourceLinks(answerResult.answer)
+    const responseSources = persona.showSourceLinks ? answerResult.sources : []
 
     logCompactChatTurn({
       personaId: persona.id,
@@ -638,7 +650,7 @@ export const chatService = {
       answer: responseMessage,
       message: responseMessage,
       timestamp: new Date().toISOString(),
-      sources: answerResult.sources,
+      sources: responseSources,
       personaId: persona.id,
       speakerId: persona.speakerId,
     }
