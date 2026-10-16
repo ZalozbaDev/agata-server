@@ -60,6 +60,7 @@ export type PersonaWriteInput = {
   visibility?: unknown
   allowExternalUpload?: unknown
   allowExternalDelete?: unknown
+  showOnMain?: unknown
 }
 
 export type NormalizedPersona = {
@@ -73,6 +74,7 @@ export type NormalizedPersona = {
   visibility: PersonaVisibility
   allowExternalUpload: boolean
   allowExternalDelete: boolean
+  showOnMain: boolean
 }
 
 export function generatePersonaToken(): string {
@@ -503,6 +505,7 @@ export function parseCreatePersona(input: PersonaWriteInput): NormalizedPersona 
     allowExternalUpload:
       readBoolean(input.allowExternalUpload, 'Externes Hochladen') ?? false,
     allowExternalDelete: readBoolean(input.allowExternalDelete, 'Externes Löschen') ?? false,
+    showOnMain: readBoolean(input.showOnMain, 'Startseite') ?? false,
   }
 }
 
@@ -553,6 +556,13 @@ export function parseUpdatePersona(
       throw new HttpError(400, 'Externes Löschen muss true oder false sein.')
     }
     next.allowExternalDelete = allow
+  }
+  if ('showOnMain' in input) {
+    const show = readBoolean(input.showOnMain, 'Startseite')
+    if (show === undefined) {
+      throw new HttpError(400, 'Startseite muss true oder false sein.')
+    }
+    next.showOnMain = show
   }
   if (Object.keys(next).length === 0) {
     throw new HttpError(400, 'Es wurden keine Änderungen übergeben.')

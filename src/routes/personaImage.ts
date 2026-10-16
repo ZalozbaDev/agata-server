@@ -4,6 +4,19 @@ import { personaService } from '../services/personaService'
 
 const router = Router()
 
+router.get('/wnucki', async (_req: Request, res: Response) => {
+  try {
+    const personas = await personaService.listWnucki()
+    res.json({ personas })
+  } catch (error) {
+    console.error(
+      'Wnucki list failed:',
+      error instanceof Error ? error.name : 'unknown',
+    )
+    res.status(500).json({ error: 'Die Wnučki konnten nicht geladen werden.' })
+  }
+})
+
 router.get('/:key/appearance', async (req: Request, res: Response) => {
   try {
     const appearance = await personaService.publicAppearance(

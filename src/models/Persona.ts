@@ -29,6 +29,8 @@ export interface IPersona extends Document {
   /** Token holders may upload documents, independent of link visibility. */
   allowExternalUpload: boolean
   allowExternalDelete: boolean
+  /** Walks in the header on the main page. */
+  showOnMain: boolean
   createdAt: Date
   updatedAt: Date
 }
@@ -119,6 +121,10 @@ const personaSchema = new Schema<IPersona>(
       default: false,
     },
     allowExternalDelete: {
+      type: Boolean,
+      default: false,
+    },
+    showOnMain: {
       type: Boolean,
       default: false,
     },

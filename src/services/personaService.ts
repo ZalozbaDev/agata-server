@@ -70,6 +70,7 @@ export type AdminPersonaDto = {
   visibility: 'public' | 'private'
   allowExternalUpload: boolean
   allowExternalDelete: boolean
+  showOnMain: boolean
   protected: boolean
   documentCount: number
   createdAt: string
@@ -114,6 +115,7 @@ function toAdminDto(persona: IPersona, documentCount: number): AdminPersonaDto {
     visibility: persona.visibility,
     allowExternalUpload: persona.allowExternalUpload === true,
     allowExternalDelete: persona.allowExternalDelete,
+    showOnMain: persona.showOnMain === true,
     protected: persona.protected === true || isSystemPersonaSlug(persona.slug),
     documentCount,
     createdAt: iso(persona.createdAt),
@@ -207,6 +209,14 @@ function applyNormalized(
   if (next.allowExternalDelete !== undefined) {
     persona.allowExternalDelete = next.allowExternalDelete
   }
+  if (next.showOnMain !== undefined) persona.showOnMain = next.showOnMain
+}
+
+export type WnuckiCard = {
+  name: string
+  slug: string
+  hasImage: boolean
+  showOnMain: boolean
 }
 
 export const personaService = {
@@ -237,6 +247,7 @@ export const personaService = {
       visibility: parsed.visibility,
       allowExternalUpload: parsed.allowExternalUpload,
       allowExternalDelete: parsed.allowExternalDelete,
+      showOnMain: parsed.showOnMain,
     })
     const saved = await savePersona(persona)
     return toAdminDto(saved, 0)
@@ -578,6 +589,26 @@ export const personaService = {
       options?.allowPrivate === true,
     )
     return runtimeFromDocument(doc)
+  },
+
+  async listWnucki(): Promise<WnuckiCard[]> {
+    const personas = await PersonaModel.find().select(
+      'name slug imageFileId showOnMain',
+    )
+    const cards: WnuckiCard[] = []
+    for (const persona of personas) {
+      const slug = persona.slug?.trim().toLowerCase() ?? ''
+      const name = persona.name.trim()
+      if (!name || !PERSONA_SLUG_PATTERN.test(slug)) continue
+      cards.push({
+        name,
+        slug,
+        hasImage: Boolean(persona.imageFileId),
+        showOnMain: persona.showOnMain === true,
+      })
+    }
+    cards.sort((a, b) => a.name.localeCompare(b.name, 'hsb'))
+    return cards
   },
 
   async publicAppearance(

@@ -98,4 +98,9 @@ export async function seedDefaultPersonas(): Promise<void> {
     { tag: { $exists: true } },
     { $unset: { tag: '' } },
   )
+
+  await Persona.updateMany(
+    { showOnMain: { $exists: false } },
+    { $set: { showOnMain: false } },
+  )
 }
