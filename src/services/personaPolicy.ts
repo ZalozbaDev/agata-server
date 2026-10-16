@@ -19,7 +19,6 @@ export function isSystemPersonaSlug(value: string | undefined | null): boolean {
 export const MANAGED_PERSONA_ID_PATTERN = /^[a-f0-9]{24}$/
 export const MAX_PROMPT_LENGTH = 20_000
 export const MAX_NAME_LENGTH = 120
-export const MAX_TAG_LENGTH = 80
 export const MIN_TOP_K = 1
 export const MAX_TOP_K = 50
 export const MIN_WEB_RESULTS = 0
@@ -57,7 +56,6 @@ export type PersonaWriteInput = {
   language?: unknown
   topK?: unknown
   webResultCount?: unknown
-  tag?: unknown
   speakerId?: unknown
   visibility?: unknown
   allowExternalUpload?: unknown
@@ -71,7 +69,6 @@ export type NormalizedPersona = {
   language: PersonaDocumentLanguage
   topK: number
   webResultCount: number
-  tag: string
   speakerId: string
   visibility: PersonaVisibility
   allowExternalUpload: boolean
@@ -321,7 +318,6 @@ export function toRuntimePersona(persona: {
 
 export type PublicPersonaView = {
   name: string
-  tag: string
   language: PersonaDocumentLanguage | null
   visibility: 'public'
   canUpload: boolean
@@ -331,7 +327,6 @@ export type PublicPersonaView = {
 
 export function toPublicPersonaView(persona: {
   name: string
-  tag: string
   language?: PersonaDocumentLanguage | null
   visibility: PersonaVisibility
   allowExternalUpload: boolean
@@ -340,7 +335,6 @@ export function toPublicPersonaView(persona: {
 }): PublicPersonaView {
   return {
     name: persona.name,
-    tag: persona.tag,
     language: persona.language ?? null,
     visibility: 'public',
     canUpload: persona.allowExternalUpload,
@@ -504,7 +498,6 @@ export function parseCreatePersona(input: PersonaWriteInput): NormalizedPersona 
     language,
     topK,
     webResultCount: readWebResultCount(input.webResultCount, false) ?? MIN_WEB_RESULTS,
-    tag: readString(input.tag, 'Tag', MAX_TAG_LENGTH, false),
     speakerId: readSpeakerId(input.speakerId, true) ?? DEFAULT_SPEAKER_ID,
     visibility,
     allowExternalUpload:
@@ -540,7 +533,6 @@ export function parseUpdatePersona(
     }
     next.webResultCount = webResultCount
   }
-  if ('tag' in input) next.tag = readString(input.tag, 'Tag', MAX_TAG_LENGTH, false)
   if ('speakerId' in input) {
     next.speakerId = readSpeakerId(input.speakerId, true) ?? DEFAULT_SPEAKER_ID
   }

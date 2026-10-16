@@ -66,7 +66,6 @@ export type AdminPersonaDto = {
   topK: number
   webResultCount: number
   hasImage: boolean
-  tag: string
   speakerId: string
   visibility: 'public' | 'private'
   allowExternalUpload: boolean
@@ -111,7 +110,6 @@ function toAdminDto(persona: IPersona, documentCount: number): AdminPersonaDto {
     topK: persona.topK,
     webResultCount: persona.webResultCount ?? 0,
     hasImage: Boolean(persona.imageFileId),
-    tag: persona.tag ?? '',
     speakerId: persona.speakerId?.trim() || DEFAULT_SPEAKER_ID,
     visibility: persona.visibility,
     allowExternalUpload: persona.allowExternalUpload === true,
@@ -201,7 +199,6 @@ function applyNormalized(
     }
     persona.webResultCount = next.webResultCount
   }
-  if (next.tag !== undefined) persona.tag = next.tag
   if (next.speakerId !== undefined) persona.speakerId = next.speakerId
   if (next.visibility !== undefined) persona.visibility = next.visibility
   if (next.allowExternalUpload !== undefined) {
@@ -236,7 +233,6 @@ export const personaService = {
       token: generatePersonaToken(),
       topK: parsed.topK,
       webResultCount: parsed.webResultCount,
-      tag: parsed.tag,
       speakerId: parsed.speakerId,
       visibility: parsed.visibility,
       allowExternalUpload: parsed.allowExternalUpload,
@@ -480,7 +476,6 @@ export const personaService = {
     })
     return toPublicPersonaView({
       name: persona.name,
-      tag: persona.tag ?? '',
       language: persona.language ?? null,
       visibility: persona.visibility,
       allowExternalUpload: persona.allowExternalUpload === true,

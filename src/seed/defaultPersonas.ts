@@ -43,7 +43,6 @@ export async function seedDefaultPersonas(): Promise<void> {
         webFallbackResultCount: 5,
         allowGeneralKnowledge: true,
         protected: true,
-        tag: '',
         speakerId: DEFAULT_SPEAKER_ID,
         visibility: 'private',
         allowExternalUpload: false,
@@ -93,5 +92,10 @@ export async function seedDefaultPersonas(): Promise<void> {
   await Persona.updateMany(
     { allowExternalUpload: { $exists: false } },
     { $set: { allowExternalUpload: false } },
+  )
+
+  await Persona.collection.updateMany(
+    { tag: { $exists: true } },
+    { $unset: { tag: '' } },
   )
 }

@@ -23,7 +23,6 @@ export interface IPersona extends Document {
   protected: boolean
   imageFileId?: mongoose.Types.ObjectId
   imageMimeType?: string
-  tag: string
   /** Bamborak speaker id. Chat answers are read aloud with this voice. */
   speakerId: string
   visibility: PersonaVisibility
@@ -100,12 +99,6 @@ const personaSchema = new Schema<IPersona>(
     },
     imageMimeType: {
       type: String,
-      trim: true,
-      maxlength: 80,
-    },
-    tag: {
-      type: String,
-      default: '',
       trim: true,
       maxlength: 80,
     },
