@@ -7,6 +7,7 @@ import { resolveOutputLanguage, SIP_PERSONA_ID, type Persona } from '../config/p
 import { chatHistoryKey } from './personaPolicy'
 import { personaService } from './personaService'
 import { sotraClient } from './sotraClient'
+import { rewriteSearchQuery, type SearchRewriteLanguage } from './searchRewrite'
 import {
   assignSourceIds,
   countSourcesByType,
@@ -74,7 +75,8 @@ type RagAskResponse = {
   scores?: number[]
 }
 
-const MAX_CACHED_HISTORY_ITEMS = 3
+/** Two full turns, so a follow-up still sees the previous user questions. */
+const MAX_CACHED_HISTORY_ITEMS = 4
 const conversationHistoryCache = new Map<string, HistoryItem[]>()
 
 function normalizeHistoryToStringArray(history: HistoryItem[]): string[] {
@@ -373,6 +375,20 @@ export const chatService = {
       documentLanguage === 'hsb' || documentLanguage === 'dsb'
     const reasonInGerman = documentLanguage === 'hsb'
     const keepOriginalText = documentLanguage === 'dsb' && queryLanguage === 'hsb'
+    const rewriteLanguage: SearchRewriteLanguage =
+      documentLanguage === 'de' || documentLanguage === 'hsb' || documentLanguage === 'dsb'
+        ? documentLanguage
+        : queryLanguage
+    const hasPreviousUser = history.some(
+      item => item.role === 'user' && item.content.trim().length > 0,
+    )
+    const rewritePromise = hasPreviousUser
+      ? rewriteSearchQuery({
+          question: message,
+          history,
+          language: rewriteLanguage,
+        })
+      : Promise.resolve(null)
 
     const questionDe = keepOriginalText
       ? message
@@ -393,19 +409,35 @@ export const chatService = {
       logger.step('question kept in original language', { queryLanguage })
     }
 
+    const rewrittenQuery = await rewritePromise
+    logger.step(rewrittenQuery ? 'search query rewritten' : 'search query unchanged', {
+      reason: !hasPreviousUser
+        ? 'no previous turn'
+        : rewrittenQuery
+          ? 'follow-up'
+          : 'rewrite failed',
+      language: rewriteLanguage,
+      queryPreview: summarizeText(rewrittenQuery ?? message),
+    })
+
     // Search in the language the persona's documents were indexed with.
     // German documents are queried in German. Sorbian documents keep the
     // original wording, because a translation drops the lexical match.
+    // A follow-up is rewritten into that same language; the answer model
+    // still sees the original message.
     const germanQuestion = questionDe.trim()
+    const fallbackQuery = documentLanguage === 'de' ? germanQuestion || message : message
+    const ragQuery = rewrittenQuery ?? fallbackQuery
     let ragForAnswer
     if (documentLanguage === 'de') {
-      ragForAnswer = await askRagServer(germanQuestion || message, persona, logger, 'de')
+      ragForAnswer = await askRagServer(ragQuery, persona, logger, 'de')
     } else if (documentLanguage === 'hsb' || documentLanguage === 'dsb') {
-      ragForAnswer = await askRagServer(message, persona, logger, documentLanguage)
+      ragForAnswer = await askRagServer(ragQuery, persona, logger, documentLanguage)
     } else {
-      const ragResponse = await askRagServer(message, persona, logger, queryLanguage)
+      const ragResponse = await askRagServer(ragQuery, persona, logger, queryLanguage)
       const originalHitCount = ragResponse.contexts?.length ?? 0
       const useGermanFallback =
+        !rewrittenQuery &&
         originalHitCount === 0 &&
         germanQuestion.length > 0 &&
         germanQuestion !== message.trim()
@@ -442,17 +474,18 @@ export const chatService = {
       : persona.webResultCount
 
     let ddgResults: Awaited<ReturnType<typeof searchDuckDuckGo>> = []
+    const webQuery = rewrittenQuery ?? questionDe
 
     if (ddgCount > 0) {
       ddgResults = await timedStep(
         logger,
         `duckduckgo search (${ddgCount})`,
-        () => searchDuckDuckGo(questionDe, ddgCount),
+        () => searchDuckDuckGo(webQuery, ddgCount),
         result => ({
           resultCount: result.length,
           requestedCount: ddgCount,
           ragIsBad,
-          queryPreview: summarizeText(questionDe),
+          queryPreview: summarizeText(webQuery),
           results: result.map(item => ({
             title: item.title,
             url: item.url,
@@ -463,16 +496,16 @@ export const chatService = {
 
       // If RAG is empty and the first web search fails, retry with a shorter query.
       if (ragIsBad && ddgResults.length === 0) {
-        const fallbackQuery = questionDe.split(/\s+/).slice(0, 8).join(' ')
-        if (fallbackQuery && fallbackQuery !== questionDe) {
+        const shorterQuery = webQuery.split(/\s+/).slice(0, 8).join(' ')
+        if (shorterQuery && shorterQuery !== webQuery) {
           ddgResults = await timedStep(
             logger,
             `duckduckgo fallback search (${ddgCount})`,
-            () => searchDuckDuckGo(fallbackQuery, ddgCount),
+            () => searchDuckDuckGo(shorterQuery, ddgCount),
             result => ({
               resultCount: result.length,
               requestedCount: ddgCount,
-              queryPreview: summarizeText(fallbackQuery),
+              queryPreview: summarizeText(shorterQuery),
             }),
           )
         }
